@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Личный кабинет — CARGOGO</title>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="cabinet.css" />
+</head>
+<body>
+
+  <header class="navbar">
+    <div class="logo">CARGOGO</div>
+    <nav class="nav-links">
+      <span>Грузы</span>
+      <span>Перевозчики</span>
+    </nav>
+    <div class="nav-buttons">
+      <button class="btn btn-outline" id="logoutBtn">Выйти</button>
+    </div>
+  </header>
+
+  <main class="cabinet">
+    <div id="loadingState" class="loading">Загрузка профиля...</div>
+
+    <div id="cabinetContent" class="cabinet-content" style="display: none;">
+      <div class="cabinet-header">
+        <div class="avatar" id="avatarInitials">—</div>
+        <div>
+          <p class="cabinet-name" id="userName">—</p>
+          <p class="cabinet-role" id="userRoleLabel">—</p>
+        </div>
+      </div>
+
+      <section class="cabinet-section">
+        <p class="section-title">Основная информация</p>
+        <div class="info-row">
+          <span class="info-label">Email</span>
+          <span class="info-value" id="userEmail">—</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">Телефон</span>
+          <span class="info-value" id="userPhone">—</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">Дата регистрации</span>
+          <span class="info-value" id="userCreatedAt">—</span>
+        </div>
+      </section>
+
+      <section class="cabinet-section" id="profileSection">
+        <p class="section-title" id="profileSectionTitle">Профиль компании</p>
+        <div class="info-row">
+          <span class="info-label">Название компании</span>
+          <span class="info-value" id="companyName">Не указано</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">IDNO</span>
+          <span class="info-value" id="taxId">Не указано</span>
+        </div>
+        <div class="info-row" id="addressRow">
+          <span class="info-label">Адрес</span>
+          <span class="info-value" id="address">Не указано</span>
+        </div>
+        <div class="info-row" id="licenseRow" style="display: none;">
+          <span class="info-label">Номер лицензии</span>
+          <span class="info-value" id="licenseNumber">Не указано</span>
+        </div>
+        <div class="info-row" id="verifiedRow" style="display: none;">
+          <span class="info-label">Статус проверки</span>
+          <span class="info-value" id="isVerified">—</span>
+        </div>
+      </section>
+
+      <section class="cabinet-section" id="carrierVehiclesSection" style="display: none;">
+        <p class="section-title">Мои автомобили</p>
+        <p class="empty-state">Пока нет добавленных автомобилей.</p>
+        <button class="btn btn-primary">+ Добавить автомобиль</button>
+      </section>
+
+      <section class="cabinet-section" id="clientCargosSection" style="display: none;">
+        <p class="section-title">Мои грузы</p>
+        <p class="empty-state">Пока нет размещённых грузов.</p>
+        <button class="btn btn-primary">+ Разместить груз</button>
+      </section>
+    </div>
+
+    <div id="errorState" class="error-state" style="display: none;">
+      <p>Не удалось загрузить профиль. Возможно, сессия истекла.</p>
+      <a href="index.html" class="link">Вернуться на главную и войти заново</a>
+    </div>
+  </main>
+
+  <script src="cabinet.js"></script>
+</body>
+</html>

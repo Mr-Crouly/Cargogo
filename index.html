@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CARGOGO — биржа грузоперевозок</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- Навбар -->
+  <header class="navbar">
+    <div class="logo">CARGOGO</div>
+    <nav class="nav-links">
+      <span>Грузы</span>
+      <span>Перевозчики</span>
+      <span>Как это работает</span>
+    </nav>
+    <div class="nav-buttons">
+      <button class="btn btn-outline" id="openLoginBtn">Войти</button>
+      <button class="btn btn-primary" id="openRegisterBtn">Регистрация</button>
+    </div>
+  </header>
+
+  <!-- Hero -->
+  <section class="hero">
+    <h1>Найдите груз или перевозчика за минуты</h1>
+    <p>Биржа грузоперевозок для Молдовы</p>
+
+    <div class="search-bar">
+      <select id="originCity">
+        <option value="">Откуда</option>
+        <option>Кишинёв</option>
+        <option>Бельцы</option>
+        <option>Тирасполь</option>
+      </select>
+      <select id="destinationCity">
+        <option value="">Куда</option>
+        <option>Кишинёв</option>
+        <option>Бельцы</option>
+        <option>Тирасполь</option>
+      </select>
+      <button class="btn btn-primary" id="searchBtn">Найти</button>
+    </div>
+  </section>
+
+  <!-- Фичи -->
+  <section class="features">
+    <div class="feature-card">
+      <p>Разместить груз</p>
+    </div>
+    <div class="feature-card">
+      <p>Найти перевозчика</p>
+    </div>
+    <div class="feature-card">
+      <p>Проверенные рейтинги</p>
+    </div>
+  </section>
+
+  <!-- Модальное окно регистрации -->
+  <div class="modal-overlay" id="registerOverlay">
+    <div class="modal">
+      <div class="modal-header">
+        <p class="modal-title">Регистрация</p>
+        <span class="modal-close" id="closeRegisterBtn">&times;</span>
+      </div>
+      <p class="modal-subtitle">Выберите тип аккаунта, чтобы начать.</p>
+
+      <div class="role-switch">
+        <button type="button" class="role-btn active" id="roleClientBtn" data-role="client">Клиент</button>
+        <button type="button" class="role-btn" id="roleCarrierBtn" data-role="carrier">Перевозчик</button>
+      </div>
+
+      <form id="registerForm">
+        <input type="hidden" id="role" name="role" value="client" />
+
+        <label for="fullName">Имя</label>
+        <input type="text" id="fullName" name="fullName" placeholder="Ион Попеску" required />
+
+        <label for="email">Email</label>
+        <input type="email" id="email" name="email" placeholder="name@mail.com" required />
+
+        <label for="phone">Телефон</label>
+        <input type="tel" id="phone" name="phone" placeholder="+373 6X XXX XXX" required />
+
+        <label for="password">Пароль</label>
+        <input type="password" id="password" name="password" placeholder="Минимум 8 символов" minlength="8" required />
+
+        <p class="error-message" id="errorMessage"></p>
+
+        <button type="submit" class="btn btn-primary btn-full">Создать аккаунт</button>
+      </form>
+
+      <p class="modal-footer">Уже есть аккаунт? <span class="link" id="switchToLoginLink">Войти</span></p>
+    </div>
+  </div>
+
+  <!-- Модальное окно логина -->
+  <div class="modal-overlay" id="loginOverlay">
+    <div class="modal">
+      <div class="modal-header">
+        <p class="modal-title">Вход</p>
+        <span class="modal-close" id="closeLoginBtn">&times;</span>
+      </div>
+      <p class="modal-subtitle">Войдите в свой аккаунт CARGOGO.</p>
+
+      <form id="loginForm">
+        <label for="loginEmail">Email</label>
+        <input type="email" id="loginEmail" name="loginEmail" placeholder="name@mail.com" required />
+
+        <label for="loginPassword">Пароль</label>
+        <input type="password" id="loginPassword" name="loginPassword" placeholder="Ваш пароль" required />
+
+        <p class="error-message" id="loginErrorMessage"></p>
+
+        <button type="submit" class="btn btn-primary btn-full">Войти</button>
+      </form>
+
+      <p class="modal-footer">Нет аккаунта? <span class="link" id="switchToRegisterLink">Зарегистрироваться</span></p>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>

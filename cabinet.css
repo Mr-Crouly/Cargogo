@@ -1,0 +1,87 @@
+.cabinet {
+  max-width: 600px;
+  margin: 40px auto;
+  padding: 0 20px;
+}
+
+.loading,
+.error-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: #666;
+}
+
+.cabinet-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: #1a1a1a;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.cabinet-name {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.cabinet-role {
+  font-size: 13px;
+  color: #888;
+  background: #f0f0f0;
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 12px;
+  margin-top: 4px;
+}
+
+.cabinet-section {
+  background: #f9f9f9;
+  border-radius: 10px;
+  padding: 20px;
+  margin-bottom: 16px;
+}
+
+.section-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 12px;
+  color: #333;
+}
+
+.info-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px solid #eaeaea;
+  font-size: 14px;
+}
+
+.info-row:last-child {
+  border-bottom: none;
+}
+
+.info-label {
+  color: #888;
+}
+
+.info-value {
+  font-weight: 500;
+}
+
+.empty-state {
+  font-size: 13px;
+  color: #999;
+  margin-bottom: 12px;
+}
