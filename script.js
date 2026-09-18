@@ -92,6 +92,16 @@ registerForm.addEventListener("submit", async (e) => {
       return;
     }
 
+    errorMessage.style.color = "green";
+errorMessage.textContent = "Регистрация прошла успешно!";
+
+setTimeout(() => {
+  overlay.classList.remove("open");
+  form.reset();
+  errorMessage.style.color = "";
+  errorMessage.textContent = "";
+}, 1500);
+
     // После успешной регистрации сразу логиним пользователя
     await loginAndRedirect(payload.email, payload.password);
   } catch (err) {
