@@ -16,6 +16,7 @@
       <span>Перевозчики</span>
     </nav>
     <div class="nav-buttons">
+      <a href="index.html" class="btn btn-outline">На главную</a>
       <button class="btn btn-outline" id="logoutBtn">Выйти</button>
     </div>
   </header>
@@ -30,9 +31,10 @@
           <p class="cabinet-name" id="userName">—</p>
           <p class="cabinet-role" id="userRoleLabel">—</p>
         </div>
+        <button class="btn btn-outline edit-profile-btn" id="editProfileBtn">Редактировать профиль</button>
       </div>
 
-      <section class="cabinet-section">
+      <section class="cabinet-section" id="viewSection">
         <p class="section-title">Основная информация</p>
         <div class="info-row">
           <span class="info-label">Email</span>
@@ -70,6 +72,39 @@
           <span class="info-label">Статус проверки</span>
           <span class="info-value" id="isVerified">—</span>
         </div>
+      </section>
+
+      <!-- Форма редактирования профиля. Набор полей зависит от роли:
+           у клиента — адрес, у перевозчика — номер лицензии. -->
+      <section class="cabinet-section" id="editSection" style="display: none;">
+        <p class="section-title" id="editSectionTitle">Редактирование профиля</p>
+
+        <form id="editProfileForm">
+          <label for="editFullName">Имя</label>
+          <input type="text" id="editFullName" name="fullName" required />
+
+          <label for="editPhone">Телефон</label>
+          <input type="tel" id="editPhone" name="phone" />
+
+          <label for="editCompanyName">Название компании</label>
+          <input type="text" id="editCompanyName" name="companyName" />
+
+          <label for="editTaxId">IDNO</label>
+          <input type="text" id="editTaxId" name="taxId" />
+
+          <label for="editAddress" id="editAddressLabel">Адрес</label>
+          <input type="text" id="editAddress" name="address" />
+
+          <label for="editLicenseNumber" id="editLicenseLabel" style="display: none;">Номер лицензии</label>
+          <input type="text" id="editLicenseNumber" name="licenseNumber" style="display: none;" />
+
+          <p class="error-message" id="editErrorMessage"></p>
+
+          <div class="edit-actions">
+            <button type="button" class="btn btn-outline" id="cancelEditBtn">Отмена</button>
+            <button type="submit" class="btn btn-primary" id="saveEditBtn">Сохранить</button>
+          </div>
+        </form>
       </section>
 
       <section class="cabinet-section" id="carrierVehiclesSection" style="display: none;">

@@ -164,6 +164,80 @@ app.get("/api/me", authMiddleware, async (req, res) => {
   }
 });
 
+// ---------- PUT /api/profile ----------
+// Защищённый эндпоинт: обновляет данные текущего пользователя
+// и его профиль (клиента или перевозчика — в зависимости от роли).
+app.put("/api/profile", authMiddleware, async (req, res) => {
+  const { fullName, phone, companyName, taxId, address, licenseNumber } = req.body;
+
+  if (!fullName || !fullName.trim()) {
+    return res.status(400).json({ message: "Имя не может быть пустым" });
+  }
+
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    // Обновляем общие поля пользователя
+    await client.query(
+      `UPDATE users SET full_name = $1, phone = $2 WHERE id = $3`,
+      [fullName.trim(), phone ? phone.trim() : null, req.user.userId]
+    );
+
+    // Обновляем профиль в зависимости от роли.
+    // Каждая роль хранит и редактирует только свои поля —
+    // это и есть разделение профиля клиента и перевозчика.
+    if (req.user.role === "client") {
+      await client.query(
+        `UPDATE client_profiles
+         SET company_name = $1, tax_id = $2, address = $3
+         WHERE user_id = $4`,
+        [companyName || null, taxId || null, address || null, req.user.userId]
+      );
+    } else if (req.user.role === "carrier") {
+      await client.query(
+        `UPDATE carrier_profiles
+         SET company_name = $1, tax_id = $2, license_number = $3
+         WHERE user_id = $4`,
+        [companyName || null, taxId || null, licenseNumber || null, req.user.userId]
+      );
+    }
+
+    await client.query("COMMIT");
+
+    // Возвращаем свежие данные, как их отдаёт /api/me
+    const userResult = await pool.query(
+      "SELECT id, email, phone, full_name, role, created_at FROM users WHERE id = $1",
+      [req.user.userId]
+    );
+    const user = userResult.rows[0];
+    let profile = null;
+
+    if (user.role === "client") {
+      const profileResult = await pool.query(
+        "SELECT company_name, tax_id, address FROM client_profiles WHERE user_id = $1",
+        [user.id]
+      );
+      profile = profileResult.rows[0] || null;
+    } else if (user.role === "carrier") {
+      const profileResult = await pool.query(
+        "SELECT company_name, tax_id, license_number, is_verified FROM carrier_profiles WHERE user_id = $1",
+        [user.id]
+      );
+      profile = profileResult.rows[0] || null;
+    }
+
+    return res.json({ message: "Профиль обновлён", user, profile });
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error("Ошибка обновления профиля:", err);
+    return res.status(500).json({ message: "Ошибка сервера" });
+  } finally {
+    client.release();
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Сервер запущен на http://localhost:${PORT}`);
 });

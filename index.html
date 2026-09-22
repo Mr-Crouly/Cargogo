@@ -16,9 +16,18 @@
       <span>Перевозчики</span>
       <span>Как это работает</span>
     </nav>
-    <div class="nav-buttons">
+    <div class="nav-buttons" id="guestButtons">
       <button class="btn btn-outline" id="openLoginBtn">Войти</button>
       <button class="btn btn-primary" id="openRegisterBtn">Регистрация</button>
+    </div>
+
+    <!-- Показывается вместо кнопок входа/регистрации, если пользователь
+         уже авторизован — так можно спокойно находиться на главной,
+         не теряя сессию и не выходя из аккаунта. -->
+    <div class="nav-buttons" id="accountButtons" style="display: none;">
+      <span class="account-greeting" id="accountGreeting"></span>
+      <a href="cabinet.html" class="btn btn-outline">Личный кабинет</a>
+      <button class="btn btn-primary" id="logoutFromHomeBtn">Выйти</button>
     </div>
   </header>
 
@@ -84,11 +93,14 @@
         <input type="tel" id="phone" name="phone" placeholder="+373 6X XXX XXX" required />
 
         <label for="password">Пароль</label>
-        <input type="password" id="password" name="password" placeholder="Минимум 8 символов" minlength="8" required />
+        <div class="password-field">
+          <input type="password" id="password" name="password" placeholder="Минимум 8 символов" minlength="8" required />
+          <span class="password-toggle" data-target="password">Показать</span>
+        </div>
 
         <p class="error-message" id="errorMessage"></p>
 
-        <button type="submit" class="btn btn-primary btn-full">Создать аккаунт</button>
+        <button type="submit" class="btn btn-primary btn-full" id="registerSubmitBtn">Создать аккаунт</button>
       </form>
 
       <p class="modal-footer">Уже есть аккаунт? <span class="link" id="switchToLoginLink">Войти</span></p>
@@ -109,11 +121,14 @@
         <input type="email" id="loginEmail" name="loginEmail" placeholder="name@mail.com" required />
 
         <label for="loginPassword">Пароль</label>
-        <input type="password" id="loginPassword" name="loginPassword" placeholder="Ваш пароль" required />
+        <div class="password-field">
+          <input type="password" id="loginPassword" name="loginPassword" placeholder="Ваш пароль" required />
+          <span class="password-toggle" data-target="loginPassword">Показать</span>
+        </div>
 
         <p class="error-message" id="loginErrorMessage"></p>
 
-        <button type="submit" class="btn btn-primary btn-full">Войти</button>
+        <button type="submit" class="btn btn-primary btn-full" id="loginSubmitBtn">Войти</button>
       </form>
 
       <p class="modal-footer">Нет аккаунта? <span class="link" id="switchToRegisterLink">Зарегистрироваться</span></p>
