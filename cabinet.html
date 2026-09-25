@@ -107,16 +107,148 @@
         </form>
       </section>
 
+      <!-- ==================== ПЕРЕВОЗЧИК: автомобили ==================== -->
       <section class="cabinet-section" id="carrierVehiclesSection" style="display: none;">
         <p class="section-title">Мои автомобили</p>
-        <p class="empty-state">Пока нет добавленных автомобилей.</p>
-        <button class="btn btn-primary">+ Добавить автомобиль</button>
+
+        <div id="vehiclesList"></div>
+        <p class="empty-state" id="vehiclesEmpty">Пока нет добавленных автомобилей.</p>
+
+        <button class="btn btn-primary" id="addVehicleBtn">+ Добавить автомобиль</button>
+
+        <form id="vehicleForm" class="inline-form" style="display: none;">
+          <label for="vehicleBrand">Марка</label>
+          <input type="text" id="vehicleBrand" placeholder="MAN, Volvo, Mercedes..." required />
+
+          <label for="vehicleModel">Модель</label>
+          <input type="text" id="vehicleModel" placeholder="TGX, FH, Actros..." />
+
+          <label for="vehiclePlate">Гос. номер</label>
+          <input type="text" id="vehiclePlate" placeholder="C AB 123" required />
+
+          <label for="vehicleCapacity">Грузоподъёмность, кг</label>
+          <input type="number" id="vehicleCapacity" min="0" placeholder="20000" />
+
+          <label for="vehicleBodyType">Тип кузова</label>
+          <select id="vehicleBodyType">
+            <option value="">Не указан</option>
+            <option>Тент</option>
+            <option>Рефрижератор</option>
+            <option>Изотерм</option>
+            <option>Борт</option>
+            <option>Самосвал</option>
+            <option>Другое</option>
+          </select>
+
+          <p class="error-message" id="vehicleErrorMessage"></p>
+
+          <div class="edit-actions">
+            <button type="button" class="btn btn-outline" id="cancelVehicleBtn">Отмена</button>
+            <button type="submit" class="btn btn-primary" id="saveVehicleBtn">Добавить</button>
+          </div>
+        </form>
       </section>
 
+      <!-- ==================== ПЕРЕВОЗЧИК: рейсы ==================== -->
+      <section class="cabinet-section" id="carrierTripsSection" style="display: none;">
+        <p class="section-title">Мои рейсы</p>
+
+        <div id="tripsList"></div>
+        <p class="empty-state" id="tripsEmpty">Пока нет выставленных рейсов.</p>
+
+        <button class="btn btn-primary" id="addTripBtn">+ Выставить рейс</button>
+
+        <form id="tripForm" class="inline-form" style="display: none;">
+          <label for="tripOrigin">Откуда</label>
+          <select id="tripOrigin" required>
+            <option value="">Выберите город</option>
+            <option>Кишинёв</option>
+            <option>Бельцы</option>
+            <option>Тирасполь</option>
+          </select>
+
+          <label for="tripDestination">Куда</label>
+          <select id="tripDestination" required>
+            <option value="">Выберите город</option>
+            <option>Кишинёв</option>
+            <option>Бельцы</option>
+            <option>Тирасполь</option>
+          </select>
+
+          <label for="tripDate">Дата отправления</label>
+          <input type="date" id="tripDate" />
+
+          <label for="tripVehicle">Автомобиль</label>
+          <select id="tripVehicle">
+            <option value="">Не выбран</option>
+          </select>
+
+          <label for="tripCapacity">Свободная загрузка, кг</label>
+          <input type="number" id="tripCapacity" min="0" placeholder="10000" />
+
+          <label for="tripPrice">Цена, MDL</label>
+          <input type="number" id="tripPrice" min="0" placeholder="5000" />
+
+          <label for="tripComment">Комментарий</label>
+          <input type="text" id="tripComment" placeholder="Дополнительная информация" />
+
+          <p class="error-message" id="tripErrorMessage"></p>
+
+          <div class="edit-actions">
+            <button type="button" class="btn btn-outline" id="cancelTripBtn">Отмена</button>
+            <button type="submit" class="btn btn-primary" id="saveTripBtn">Выставить рейс</button>
+          </div>
+        </form>
+      </section>
+
+      <!-- ==================== КЛИЕНТ: грузы ==================== -->
       <section class="cabinet-section" id="clientCargosSection" style="display: none;">
         <p class="section-title">Мои грузы</p>
-        <p class="empty-state">Пока нет размещённых грузов.</p>
-        <button class="btn btn-primary">+ Разместить груз</button>
+
+        <div id="cargosList"></div>
+        <p class="empty-state" id="cargosEmpty">Пока нет размещённых грузов.</p>
+
+        <button class="btn btn-primary" id="addCargoBtn">+ Разместить груз</button>
+
+        <form id="cargoForm" class="inline-form" style="display: none;">
+          <label for="cargoOrigin">Откуда</label>
+          <select id="cargoOrigin" required>
+            <option value="">Выберите город</option>
+            <option>Кишинёв</option>
+            <option>Бельцы</option>
+            <option>Тирасполь</option>
+          </select>
+
+          <label for="cargoDestination">Куда</label>
+          <select id="cargoDestination" required>
+            <option value="">Выберите город</option>
+            <option>Кишинёв</option>
+            <option>Бельцы</option>
+            <option>Тирасполь</option>
+          </select>
+
+          <label for="cargoType">Тип груза</label>
+          <input type="text" id="cargoType" placeholder="Стройматериалы, мебель..." />
+
+          <label for="cargoWeight">Вес, кг</label>
+          <input type="number" id="cargoWeight" min="0" placeholder="1500" />
+
+          <label for="cargoReadyDate">Дата готовности</label>
+          <input type="date" id="cargoReadyDate" />
+
+          <label for="cargoPrice">Бюджет, MDL</label>
+          <input type="number" id="cargoPrice" min="0" placeholder="2000" />
+
+          <label for="cargoComment">Комментарий</label>
+          <input type="text" id="cargoComment" placeholder="Дополнительная информация" />
+
+          <p class="error-message" id="cargoErrorMessage"></p>
+
+          <div class="edit-actions">
+            <button type="button" class="btn btn-outline" id="cancelCargoBtn">Отмена</button>
+            <button type="submit" class="btn btn-primary" id="saveCargoBtn">Разместить</button>
+          </div>
+        </form>
       </section>
     </div>
 

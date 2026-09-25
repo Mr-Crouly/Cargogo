@@ -158,6 +158,7 @@ function renderProfile(user, profile) {
 
     if (clientCargosSection) {
       clientCargosSection.style.display = "block";
+      loadCargos();
     }
   }
 
@@ -201,6 +202,15 @@ function renderProfile(user, profile) {
 
     if (carrierVehiclesSection) {
       carrierVehiclesSection.style.display = "block";
+      loadVehicles();
+    }
+
+    const carrierTripsSection =
+      document.getElementById("carrierTripsSection");
+
+    if (carrierTripsSection) {
+      carrierTripsSection.style.display = "block";
+      loadTrips();
     }
   }
 }
@@ -320,6 +330,426 @@ if (editProfileForm) {
       saveBtn.textContent = "Сохранить";
     }
   });
+}
+
+
+// ---------- Вспомогательные функции ----------
+function formatDate(value) {
+  if (!value) return null;
+  return new Date(value).toLocaleDateString("ru-RU");
+}
+
+function formatMoney(value) {
+  if (value === null || value === undefined) return null;
+  return `${Number(value).toLocaleString("ru-RU")} MDL`;
+}
+
+function toggleForm(form, show) {
+  form.style.display = show ? "block" : "none";
+  if (!show) form.reset();
+}
+
+async function deleteEntity(url, onSuccess, confirmText) {
+  if (!window.confirm(confirmText)) return;
+
+  try {
+    const response = await fetch(url, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      showToast(data.message || "Не удалось удалить", true);
+      return;
+    }
+
+    showToast(data.message || "Удалено");
+    onSuccess();
+  } catch (err) {
+    console.error("Ошибка удаления:", err);
+    showToast("Не удалось связаться с сервером", true);
+  }
+}
+
+
+// ==================== ПЕРЕВОЗЧИК: автомобили ====================
+const vehiclesList = document.getElementById("vehiclesList");
+const vehiclesEmpty = document.getElementById("vehiclesEmpty");
+const addVehicleBtn = document.getElementById("addVehicleBtn");
+const cancelVehicleBtn = document.getElementById("cancelVehicleBtn");
+const vehicleForm = document.getElementById("vehicleForm");
+const vehicleErrorMessage = document.getElementById("vehicleErrorMessage");
+
+let vehiclesCache = [];
+
+async function loadVehicles() {
+  try {
+    const response = await fetch(`${API_URL}/vehicles`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await response.json();
+    if (!response.ok) return;
+
+    vehiclesCache = data.vehicles;
+    renderVehicles(vehiclesCache);
+    renderVehicleOptions(vehiclesCache);
+  } catch (err) {
+    console.error("Ошибка загрузки автомобилей:", err);
+  }
+}
+
+function renderVehicles(vehicles) {
+  vehiclesList.innerHTML = "";
+  vehiclesEmpty.style.display = vehicles.length ? "none" : "block";
+
+  vehicles.forEach((vehicle) => {
+    const card = document.createElement("div");
+    card.className = "entity-card";
+
+    const details = [vehicle.body_type, vehicle.capacity_kg ? `до ${vehicle.capacity_kg} кг` : null]
+      .filter(Boolean)
+      .join(" · ");
+
+    card.innerHTML = `
+      <div class="entity-card-main">
+        <div class="entity-card-title">${escapeHtml(vehicle.brand)} ${escapeHtml(vehicle.model || "")}</div>
+        <div class="entity-card-sub">Гос. номер: ${escapeHtml(vehicle.plate_number)}</div>
+        ${details ? `<div class="entity-card-sub">${escapeHtml(details)}</div>` : ""}
+      </div>
+      <button class="entity-card-delete" data-id="${vehicle.id}">Удалить</button>
+    `;
+
+    card.querySelector(".entity-card-delete").addEventListener("click", () => {
+      deleteEntity(
+        `${API_URL}/vehicles/${vehicle.id}`,
+        loadVehicles,
+        "Удалить этот автомобиль?"
+      );
+    });
+
+    vehiclesList.appendChild(card);
+  });
+}
+
+function renderVehicleOptions(vehicles) {
+  const select = document.getElementById("tripVehicle");
+  if (!select) return;
+
+  const current = select.value;
+  select.innerHTML = '<option value="">Не выбран</option>';
+
+  vehicles.forEach((vehicle) => {
+    const option = document.createElement("option");
+    option.value = vehicle.id;
+    option.textContent = `${vehicle.brand} ${vehicle.model || ""} (${vehicle.plate_number})`;
+    select.appendChild(option);
+  });
+
+  select.value = current;
+}
+
+if (addVehicleBtn) {
+  addVehicleBtn.addEventListener("click", () => {
+    vehicleErrorMessage.textContent = "";
+    toggleForm(vehicleForm, true);
+  });
+}
+
+if (cancelVehicleBtn) {
+  cancelVehicleBtn.addEventListener("click", () => toggleForm(vehicleForm, false));
+}
+
+if (vehicleForm) {
+  vehicleForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    vehicleErrorMessage.textContent = "";
+
+    const payload = {
+      brand: document.getElementById("vehicleBrand").value.trim(),
+      model: document.getElementById("vehicleModel").value.trim(),
+      plateNumber: document.getElementById("vehiclePlate").value.trim(),
+      capacityKg: document.getElementById("vehicleCapacity").value,
+      bodyType: document.getElementById("vehicleBodyType").value,
+    };
+
+    if (!payload.brand || !payload.plateNumber) {
+      vehicleErrorMessage.textContent = "Укажите марку и гос. номер";
+      return;
+    }
+
+    const saveBtn = document.getElementById("saveVehicleBtn");
+    saveBtn.disabled = true;
+    saveBtn.textContent = "Добавление...";
+
+    try {
+      const response = await fetch(`${API_URL}/vehicles`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(payload),
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        vehicleErrorMessage.textContent = data.message || "Не удалось добавить автомобиль";
+        return;
+      }
+
+      toggleForm(vehicleForm, false);
+      showToast("Автомобиль добавлен");
+      loadVehicles();
+    } catch (err) {
+      console.error("Ошибка добавления автомобиля:", err);
+      vehicleErrorMessage.textContent = "Не удалось связаться с сервером";
+    } finally {
+      saveBtn.disabled = false;
+      saveBtn.textContent = "Добавить";
+    }
+  });
+}
+
+
+// ==================== ПЕРЕВОЗЧИК: рейсы ====================
+const tripsList = document.getElementById("tripsList");
+const tripsEmpty = document.getElementById("tripsEmpty");
+const addTripBtn = document.getElementById("addTripBtn");
+const cancelTripBtn = document.getElementById("cancelTripBtn");
+const tripForm = document.getElementById("tripForm");
+const tripErrorMessage = document.getElementById("tripErrorMessage");
+
+async function loadTrips() {
+  try {
+    const response = await fetch(`${API_URL}/trips`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await response.json();
+    if (!response.ok) return;
+
+    renderTrips(data.trips);
+  } catch (err) {
+    console.error("Ошибка загрузки рейсов:", err);
+  }
+}
+
+function renderTrips(trips) {
+  tripsList.innerHTML = "";
+  tripsEmpty.style.display = trips.length ? "none" : "block";
+
+  trips.forEach((trip) => {
+    const card = document.createElement("div");
+    card.className = "entity-card";
+
+    const subParts = [];
+    if (trip.departure_date) subParts.push(formatDate(trip.departure_date));
+    if (trip.capacity_kg) subParts.push(`до ${trip.capacity_kg} кг`);
+    if (trip.vehicle_brand) subParts.push(`${trip.vehicle_brand} (${trip.vehicle_plate})`);
+
+    card.innerHTML = `
+      <div class="entity-card-main">
+        <div class="entity-card-title">${escapeHtml(trip.origin_city)} → ${escapeHtml(trip.destination_city)}</div>
+        ${subParts.length ? `<div class="entity-card-sub">${escapeHtml(subParts.join(" · "))}</div>` : ""}
+        ${trip.price ? `<div class="entity-card-sub">${escapeHtml(formatMoney(trip.price))}</div>` : ""}
+        ${trip.comment ? `<div class="entity-card-sub">${escapeHtml(trip.comment)}</div>` : ""}
+      </div>
+      <button class="entity-card-delete" data-id="${trip.id}">Удалить</button>
+    `;
+
+    card.querySelector(".entity-card-delete").addEventListener("click", () => {
+      deleteEntity(`${API_URL}/trips/${trip.id}`, loadTrips, "Удалить этот рейс?");
+    });
+
+    tripsList.appendChild(card);
+  });
+}
+
+if (addTripBtn) {
+  addTripBtn.addEventListener("click", () => {
+    tripErrorMessage.textContent = "";
+    renderVehicleOptions(vehiclesCache);
+    toggleForm(tripForm, true);
+  });
+}
+
+if (cancelTripBtn) {
+  cancelTripBtn.addEventListener("click", () => toggleForm(tripForm, false));
+}
+
+if (tripForm) {
+  tripForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    tripErrorMessage.textContent = "";
+
+    const payload = {
+      originCity: document.getElementById("tripOrigin").value,
+      destinationCity: document.getElementById("tripDestination").value,
+      departureDate: document.getElementById("tripDate").value,
+      vehicleId: document.getElementById("tripVehicle").value || null,
+      capacityKg: document.getElementById("tripCapacity").value,
+      price: document.getElementById("tripPrice").value,
+      comment: document.getElementById("tripComment").value.trim(),
+    };
+
+    if (!payload.originCity || !payload.destinationCity) {
+      tripErrorMessage.textContent = "Укажите города отправления и назначения";
+      return;
+    }
+
+    const saveBtn = document.getElementById("saveTripBtn");
+    saveBtn.disabled = true;
+    saveBtn.textContent = "Сохранение...";
+
+    try {
+      const response = await fetch(`${API_URL}/trips`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(payload),
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        tripErrorMessage.textContent = data.message || "Не удалось выставить рейс";
+        return;
+      }
+
+      toggleForm(tripForm, false);
+      showToast("Рейс выставлен");
+      loadTrips();
+    } catch (err) {
+      console.error("Ошибка добавления рейса:", err);
+      tripErrorMessage.textContent = "Не удалось связаться с сервером";
+    } finally {
+      saveBtn.disabled = false;
+      saveBtn.textContent = "Выставить рейс";
+    }
+  });
+}
+
+
+// ==================== КЛИЕНТ: грузы ====================
+const cargosList = document.getElementById("cargosList");
+const cargosEmpty = document.getElementById("cargosEmpty");
+const addCargoBtn = document.getElementById("addCargoBtn");
+const cancelCargoBtn = document.getElementById("cancelCargoBtn");
+const cargoForm = document.getElementById("cargoForm");
+const cargoErrorMessage = document.getElementById("cargoErrorMessage");
+
+async function loadCargos() {
+  try {
+    const response = await fetch(`${API_URL}/cargos`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await response.json();
+    if (!response.ok) return;
+
+    renderCargos(data.cargos);
+  } catch (err) {
+    console.error("Ошибка загрузки грузов:", err);
+  }
+}
+
+function renderCargos(cargos) {
+  cargosList.innerHTML = "";
+  cargosEmpty.style.display = cargos.length ? "none" : "block";
+
+  cargos.forEach((cargo) => {
+    const card = document.createElement("div");
+    card.className = "entity-card";
+
+    const subParts = [];
+    if (cargo.cargo_type) subParts.push(cargo.cargo_type);
+    if (cargo.weight_kg) subParts.push(`${cargo.weight_kg} кг`);
+    if (cargo.ready_date) subParts.push(`готов к ${formatDate(cargo.ready_date)}`);
+
+    card.innerHTML = `
+      <div class="entity-card-main">
+        <div class="entity-card-title">${escapeHtml(cargo.origin_city)} → ${escapeHtml(cargo.destination_city)}</div>
+        ${subParts.length ? `<div class="entity-card-sub">${escapeHtml(subParts.join(" · "))}</div>` : ""}
+        ${cargo.price ? `<div class="entity-card-sub">${escapeHtml(formatMoney(cargo.price))}</div>` : ""}
+        ${cargo.comment ? `<div class="entity-card-sub">${escapeHtml(cargo.comment)}</div>` : ""}
+      </div>
+      <button class="entity-card-delete" data-id="${cargo.id}">Удалить</button>
+    `;
+
+    card.querySelector(".entity-card-delete").addEventListener("click", () => {
+      deleteEntity(`${API_URL}/cargos/${cargo.id}`, loadCargos, "Удалить этот груз?");
+    });
+
+    cargosList.appendChild(card);
+  });
+}
+
+if (addCargoBtn) {
+  addCargoBtn.addEventListener("click", () => {
+    cargoErrorMessage.textContent = "";
+    toggleForm(cargoForm, true);
+  });
+}
+
+if (cancelCargoBtn) {
+  cancelCargoBtn.addEventListener("click", () => toggleForm(cargoForm, false));
+}
+
+if (cargoForm) {
+  cargoForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    cargoErrorMessage.textContent = "";
+
+    const payload = {
+      originCity: document.getElementById("cargoOrigin").value,
+      destinationCity: document.getElementById("cargoDestination").value,
+      cargoType: document.getElementById("cargoType").value.trim(),
+      weightKg: document.getElementById("cargoWeight").value,
+      readyDate: document.getElementById("cargoReadyDate").value,
+      price: document.getElementById("cargoPrice").value,
+      comment: document.getElementById("cargoComment").value.trim(),
+    };
+
+    if (!payload.originCity || !payload.destinationCity) {
+      cargoErrorMessage.textContent = "Укажите города отправления и назначения";
+      return;
+    }
+
+    const saveBtn = document.getElementById("saveCargoBtn");
+    saveBtn.disabled = true;
+    saveBtn.textContent = "Размещение...";
+
+    try {
+      const response = await fetch(`${API_URL}/cargos`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(payload),
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        cargoErrorMessage.textContent = data.message || "Не удалось разместить груз";
+        return;
+      }
+
+      toggleForm(cargoForm, false);
+      showToast("Груз размещён");
+      loadCargos();
+    } catch (err) {
+      console.error("Ошибка размещения груза:", err);
+      cargoErrorMessage.textContent = "Не удалось связаться с сервером";
+    } finally {
+      saveBtn.disabled = false;
+      saveBtn.textContent = "Разместить";
+    }
+  });
+}
+
+
+// ---------- Экранирование текста для безопасной вставки в HTML ----------
+function escapeHtml(value) {
+  if (value === null || value === undefined) return "";
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 
