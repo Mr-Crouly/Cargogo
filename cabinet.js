@@ -212,6 +212,14 @@ function renderProfile(user, profile) {
       carrierTripsSection.style.display = "block";
       loadTrips();
     }
+
+    const publicCargosSection =
+      document.getElementById("publicCargosSection");
+
+    if (publicCargosSection) {
+      publicCargosSection.style.display = "block";
+      loadPublicCargos();
+    }
   }
 }
 
@@ -312,7 +320,7 @@ if (editProfileForm) {
       const data = await response.json();
 
       if (!response.ok) {
-        editErrorMessage.textContent = data.message || "Не удалось сохранить изменения";
+        editErrorMessage.textContent = data. message || "Не удалось сохранить изменения";
         return;
       }
 
@@ -623,6 +631,62 @@ if (tripForm) {
       saveBtn.textContent = "Выставить рейс";
     }
   });
+}
+
+
+// ==================== ПЕРЕВОЗЧИК: доступные грузы (витрина) ====================
+const publicCargosList = document.getElementById("publicCargosList");
+const publicCargosEmpty = document.getElementById("publicCargosEmpty");
+const refreshPublicCargosBtn = document.getElementById("refreshPublicCargosBtn");
+
+async function loadPublicCargos() {
+  try {
+    const response = await fetch(`${API_URL}/cargos/public`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await response.json();
+    if (!response.ok) return;
+
+    renderPublicCargos(data.cargos);
+  } catch (err) {
+    console.error("Ошибка загрузки витрины грузов:", err);
+  }
+}
+
+function renderPublicCargos(cargos) {
+  publicCargosList.innerHTML = "";
+  publicCargosEmpty.style.display = cargos.length ? "none" : "block";
+
+  cargos.forEach((cargo) => {
+    const card = document.createElement("div");
+    card.className = "entity-card";
+
+    const subParts = [];
+    if (cargo.cargo_type) subParts.push(cargo.cargo_type);
+    if (cargo.weight_kg) subParts.push(`${cargo.weight_kg} кг`);
+    if (cargo.ready_date) subParts.push(`готов к ${formatDate(cargo.ready_date)}`);
+
+    const contactName = cargo.client_name || "Клиент";
+    const contactPhone = cargo.client_phone;
+
+    card.innerHTML = `
+      <div class="entity-card-main">
+        <div class="entity-card-title">${escapeHtml(cargo.origin_city)} → ${escapeHtml(cargo.destination_city)}</div>
+        ${subParts.length ? `<div class="entity-card-sub">${escapeHtml(subParts.join(" · "))}</div>` : ""}
+        ${cargo.price ? `<div class="entity-card-sub">${escapeHtml(formatMoney(cargo.price))}</div>` : ""}
+        ${cargo.comment ? `<div class="entity-card-sub">${escapeHtml(cargo.comment)}</div>` : ""}
+        <div class="entity-card-sub">
+          Заказчик: ${escapeHtml(contactName)}${contactPhone ? ` · <a href="tel:${escapeHtml(contactPhone)}">${escapeHtml(contactPhone)}</a>` : ""}
+        </div>
+      </div>
+    `;
+
+    publicCargosList.appendChild(card);
+  });
+}
+
+if (refreshPublicCargosBtn) {
+  refreshPublicCargosBtn.addEventListener("click", loadPublicCargos);
 }
 
 

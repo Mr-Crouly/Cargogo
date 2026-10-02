@@ -508,6 +508,27 @@ app.get("/api/cargos", authMiddleware, requireRole("client"), async (req, res) =
   }
 });
 
+// ---------- GET /api/cargos/public ----------
+// Витрина активных грузов от ВСЕХ клиентов — её видят перевозчики,
+// чтобы находить подходящие грузы и связываться с заказчиком напрямую.
+app.get("/api/cargos/public", authMiddleware, requireRole("carrier"), async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT c.id, c.origin_city, c.destination_city, c.cargo_type, c.weight_kg,
+              c.price, c.ready_date, c.comment, c.created_at,
+              u.full_name AS client_name, u.phone AS client_phone
+       FROM cargos c
+       JOIN users u ON u.id = c.client_id
+       WHERE c.status = 'active'
+       ORDER BY c.created_at DESC`
+    );
+    return res.json({ cargos: result.rows });
+  } catch (err) {
+    console.error("Ошибка получения витрины грузов:", err);
+    return res.status(500).json({ message: "Ошибка сервера" });
+  }
+});
+
 // ---------- POST /api/cargos ----------
 app.post("/api/cargos", authMiddleware, requireRole("client"), async (req, res) => {
   const { originCity, destinationCity, cargoType, weightKg, price, readyDate, comment } = req.body;
