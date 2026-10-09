@@ -343,6 +343,47 @@ app.put("/api/profile", authMiddleware, async (req, res) => {
   }
 });
 
+// ==================== ПУБЛИЧНАЯ ВИТРИНА (главная страница) ====================
+// Без авторизации: показываем общий список актуальных грузов и рейсов
+// на главной странице, но БЕЗ контактов — чтобы не светить телефоны
+// клиентов и перевозчиков всем подряд. Полные контакты доступны только
+// авторизованным пользователям в личном кабинете.
+
+// ---------- GET /api/public/cargos ----------
+app.get("/api/public/cargos", async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT id, origin_city, destination_city, cargo_type, weight_kg, price, ready_date, created_at
+       FROM cargos
+       WHERE status = 'active'
+       ORDER BY created_at DESC
+       LIMIT 24`
+    );
+    return res.json({ cargos: result.rows });
+  } catch (err) {
+    console.error("Ошибка получения публичных грузов:", err);
+    return res.status(500).json({ message: "Ошибка сервера" });
+  }
+});
+
+// ---------- GET /api/public/trips ----------
+app.get("/api/public/trips", async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT id, origin_city, destination_city, departure_date, price, capacity_kg, created_at
+       FROM trips
+       WHERE status = 'active'
+       ORDER BY created_at DESC
+       LIMIT 24`
+    );
+    return res.json({ trips: result.rows });
+  } catch (err) {
+    console.error("Ошибка получения публичных рейсов:", err);
+    return res.status(500).json({ message: "Ошибка сервера" });
+  }
+});
+
+
 // ==================== ПЕРЕВОЗЧИК: автомобили ====================
 
 // ---------- GET /api/vehicles ----------

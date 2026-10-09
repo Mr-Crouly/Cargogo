@@ -320,7 +320,7 @@ if (editProfileForm) {
       const data = await response.json();
 
       if (!response.ok) {
-        editErrorMessage.textContent = data. message || "Не удалось сохранить изменения";
+        editErrorMessage.textContent = data.message || "Не удалось сохранить изменения";
         return;
       }
 

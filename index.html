@@ -10,11 +10,11 @@
 
   <!-- Навбар -->
   <header class="navbar">
-    <div class="logo">CARGOGO</div>
+    <div class="logo">CARGO<span class="logo-accent">GO</span></div>
     <nav class="nav-links">
-      <span>Грузы</span>
-      <span>Перевозчики</span>
-      <span>Как это работает</span>
+      <a href="#cargos-section">Грузы</a>
+      <a href="#trips-section">Рейсы</a>
+      <a href="#how-it-works">Как это работает</a>
     </nav>
     <div class="nav-buttons" id="guestButtons">
       <button class="btn btn-outline" id="openLoginBtn">Войти</button>
@@ -34,7 +34,7 @@
   <!-- Hero -->
   <section class="hero">
     <h1>Найдите груз или перевозчика за минуты</h1>
-    <p>Биржа грузоперевозок для Молдовы</p>
+    <p>Биржа грузоперевозок для Молдовы — без посредников</p>
 
     <div class="search-bar">
       <select id="originCity">
@@ -50,21 +50,81 @@
         <option>Тирасполь</option>
       </select>
       <button class="btn btn-primary" id="searchBtn">Найти</button>
+      <button class="btn btn-outline" id="resetSearchBtn" style="display: none;">Сбросить</button>
     </div>
   </section>
 
-  <!-- Фичи -->
+  <!-- Фичи / призывы к действию -->
   <section class="features">
     <div class="feature-card">
-      <p>Разместить груз</p>
+      <div class="feature-icon">📦</div>
+      <p class="feature-title">Разместить груз</p>
+      <p class="feature-text">Укажите маршрут, вес и бюджет — перевозчики увидят ваш груз сразу.</p>
+      <button class="btn btn-outline feature-btn" id="ctaClientBtn">Я клиент</button>
     </div>
     <div class="feature-card">
-      <p>Найти перевозчика</p>
+      <div class="feature-icon">🚚</div>
+      <p class="feature-title">Стать перевозчиком</p>
+      <p class="feature-text">Добавьте автомобиль, выставляйте рейсы и находите грузы под свой маршрут.</p>
+      <button class="btn btn-outline feature-btn" id="ctaCarrierBtn">Я перевозчик</button>
     </div>
     <div class="feature-card">
-      <p>Проверенные рейтинги</p>
+      <div class="feature-icon">✅</div>
+      <p class="feature-title">Без посредников</p>
+      <p class="feature-text">Связывайтесь напрямую — никаких скрытых комиссий за сделку.</p>
     </div>
   </section>
+
+  <!-- Витрина: актуальные грузы -->
+  <section class="listing-section" id="cargos-section">
+    <div class="listing-header">
+      <h2>Актуальные грузы</h2>
+      <p class="listing-subtitle">Грузы, размещённые клиентами прямо сейчас</p>
+    </div>
+
+    <div class="listing-grid" id="homeCargosList"></div>
+    <p class="listing-loading" id="homeCargosLoading">Загружаем грузы...</p>
+    <p class="listing-empty" id="homeCargosEmpty" style="display: none;">Подходящих грузов пока нет.</p>
+  </section>
+
+  <!-- Витрина: актуальные рейсы -->
+  <section class="listing-section" id="trips-section">
+    <div class="listing-header">
+      <h2>Актуальные рейсы</h2>
+      <p class="listing-subtitle">Свободные рейсы от перевозчиков</p>
+    </div>
+
+    <div class="listing-grid" id="homeTripsList"></div>
+    <p class="listing-loading" id="homeTripsLoading">Загружаем рейсы...</p>
+    <p class="listing-empty" id="homeTripsEmpty" style="display: none;">Подходящих рейсов пока нет.</p>
+  </section>
+
+  <!-- Как это работает -->
+  <section class="how-it-works" id="how-it-works">
+    <h2>Как это работает</h2>
+    <div class="steps">
+      <div class="step">
+        <div class="step-number">1</div>
+        <p class="step-title">Зарегистрируйтесь</p>
+        <p class="step-text">Выберите, кто вы — клиент или перевозчик. Это займёт меньше минуты.</p>
+      </div>
+      <div class="step">
+        <div class="step-number">2</div>
+        <p class="step-title">Разместите груз или рейс</p>
+        <p class="step-text">Клиент указывает маршрут и груз, перевозчик — автомобиль и свободный рейс.</p>
+      </div>
+      <div class="step">
+        <div class="step-number">3</div>
+        <p class="step-title">Свяжитесь напрямую</p>
+        <p class="step-text">В личном кабинете видны контакты второй стороны — договаривайтесь сами.</p>
+      </div>
+    </div>
+  </section>
+
+  <footer class="site-footer">
+    <div class="logo">CARGO<span class="logo-accent">GO</span></div>
+    <p>Биржа грузоперевозок для Молдовы · <span id="footerYear"></span></p>
+  </footer>
 
   <!-- Модальное окно регистрации -->
   <div class="modal-overlay" id="registerOverlay">

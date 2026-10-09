@@ -178,6 +178,207 @@ if (logoutFromHomeBtn) {
 checkAuthState();
 
 
+// ---------- Витрина: актуальные грузы и рейсы на главной ----------
+const homeCargosList = document.getElementById("homeCargosList");
+const homeCargosLoading = document.getElementById("homeCargosLoading");
+const homeCargosEmpty = document.getElementById("homeCargosEmpty");
+
+const homeTripsList = document.getElementById("homeTripsList");
+const homeTripsLoading = document.getElementById("homeTripsLoading");
+const homeTripsEmpty = document.getElementById("homeTripsEmpty");
+
+const searchBtn = document.getElementById("searchBtn");
+const resetSearchBtn = document.getElementById("resetSearchBtn");
+const originCitySelect = document.getElementById("originCity");
+const destinationCitySelect = document.getElementById("destinationCity");
+
+let allHomeCargos = [];
+let allHomeTrips = [];
+
+function escapeHtmlHome(value) {
+  if (value === null || value === undefined) return "";
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function formatDateHome(value) {
+  if (!value) return null;
+  return new Date(value).toLocaleDateString("ru-RU");
+}
+
+function formatMoneyHome(value) {
+  if (value === null || value === undefined) return null;
+  return `${Number(value).toLocaleString("ru-RU")} MDL`;
+}
+
+// При клике по карточке груза/рейса — если пользователь уже авторизован,
+// ведём сразу в кабинет (там видны полные контакты), иначе предлагаем войти.
+function goToCabinetOrLogin() {
+  if (localStorage.getItem("token")) {
+    window.location.href = "cabinet.html";
+  } else {
+    openModal(loginOverlay);
+  }
+}
+
+async function loadHomeCargos() {
+  if (homeCargosLoading) homeCargosLoading.style.display = "block";
+
+  try {
+    const response = await fetch(`${API_URL}/public/cargos`);
+    const data = await response.json();
+    if (!response.ok) return;
+
+    allHomeCargos = data.cargos;
+    renderHomeCargos(allHomeCargos);
+  } catch (err) {
+    console.error("Ошибка загрузки витрины грузов:", err);
+    if (homeCargosLoading) homeCargosLoading.textContent = "Не удалось загрузить грузы";
+  }
+}
+
+function renderHomeCargos(cargos) {
+  if (homeCargosLoading) homeCargosLoading.style.display = "none";
+  homeCargosList.innerHTML = "";
+  homeCargosEmpty.style.display = cargos.length ? "none" : "block";
+
+  cargos.forEach((cargo) => {
+    const card = document.createElement("div");
+    card.className = "listing-card";
+
+    const subParts = [];
+    if (cargo.cargo_type) subParts.push(cargo.cargo_type);
+    if (cargo.weight_kg) subParts.push(`${cargo.weight_kg} кг`);
+    if (cargo.ready_date) subParts.push(`готов к ${formatDateHome(cargo.ready_date)}`);
+
+    card.innerHTML = `
+      <div class="listing-card-route">${escapeHtmlHome(cargo.origin_city)} → ${escapeHtmlHome(cargo.destination_city)}</div>
+      ${subParts.length ? `<div class="listing-card-sub">${escapeHtmlHome(subParts.join(" · "))}</div>` : ""}
+      ${cargo.price ? `<div class="listing-card-price">${escapeHtmlHome(formatMoneyHome(cargo.price))}</div>` : ""}
+      <button class="listing-card-btn">Откликнуться</button>
+    `;
+
+    card.querySelector(".listing-card-btn").addEventListener("click", goToCabinetOrLogin);
+    homeCargosList.appendChild(card);
+  });
+}
+
+async function loadHomeTrips() {
+  if (homeTripsLoading) homeTripsLoading.style.display = "block";
+
+  try {
+    const response = await fetch(`${API_URL}/public/trips`);
+    const data = await response.json();
+    if (!response.ok) return;
+
+    allHomeTrips = data.trips;
+    renderHomeTrips(allHomeTrips);
+  } catch (err) {
+    console.error("Ошибка загрузки витрины рейсов:", err);
+    if (homeTripsLoading) homeTripsLoading.textContent = "Не удалось загрузить рейсы";
+  }
+}
+
+function renderHomeTrips(trips) {
+  if (homeTripsLoading) homeTripsLoading.style.display = "none";
+  homeTripsList.innerHTML = "";
+  homeTripsEmpty.style.display = trips.length ? "none" : "block";
+
+  trips.forEach((trip) => {
+    const card = document.createElement("div");
+    card.className = "listing-card";
+
+    const subParts = [];
+    if (trip.departure_date) subParts.push(formatDateHome(trip.departure_date));
+    if (trip.capacity_kg) subParts.push(`до ${trip.capacity_kg} кг`);
+
+    card.innerHTML = `
+      <div class="listing-card-route">${escapeHtmlHome(trip.origin_city)} → ${escapeHtmlHome(trip.destination_city)}</div>
+      ${subParts.length ? `<div class="listing-card-sub">${escapeHtmlHome(subParts.join(" · "))}</div>` : ""}
+      ${trip.price ? `<div class="listing-card-price">${escapeHtmlHome(formatMoneyHome(trip.price))}</div>` : ""}
+      <button class="listing-card-btn">Откликнуться</button>
+    `;
+
+    card.querySelector(".listing-card-btn").addEventListener("click", goToCabinetOrLogin);
+    homeTripsList.appendChild(card);
+  });
+}
+
+// ---------- Поиск по городам: фильтрует обе витрины ----------
+function applySearchFilter() {
+  const origin = originCitySelect.value;
+  const destination = destinationCitySelect.value;
+
+  if (!origin && !destination) {
+    renderHomeCargos(allHomeCargos);
+    renderHomeTrips(allHomeTrips);
+    if (resetSearchBtn) resetSearchBtn.style.display = "none";
+    return;
+  }
+
+  const matches = (item) =>
+    (!origin || item.origin_city === origin) &&
+    (!destination || item.destination_city === destination);
+
+  renderHomeCargos(allHomeCargos.filter(matches));
+  renderHomeTrips(allHomeTrips.filter(matches));
+  if (resetSearchBtn) resetSearchBtn.style.display = "inline-block";
+}
+
+if (searchBtn) {
+  searchBtn.addEventListener("click", () => {
+    applySearchFilter();
+    document.getElementById("cargos-section").scrollIntoView({ behavior: "smooth" });
+  });
+}
+
+if (resetSearchBtn) {
+  resetSearchBtn.addEventListener("click", () => {
+    originCitySelect.value = "";
+    destinationCitySelect.value = "";
+    applySearchFilter();
+  });
+}
+
+loadHomeCargos();
+loadHomeTrips();
+
+
+// ---------- CTA-кнопки "Я клиент" / "Я перевозчик" ----------
+const ctaClientBtn = document.getElementById("ctaClientBtn");
+const ctaCarrierBtn = document.getElementById("ctaCarrierBtn");
+
+function handleRoleCta(role) {
+  if (localStorage.getItem("token")) {
+    // Пользователь уже авторизован — просто ведём в кабинет
+    window.location.href = "cabinet.html";
+    return;
+  }
+  // Не авторизован — открываем регистрацию с предвыбранной ролью
+  selectRole(role);
+  openModal(registerOverlay);
+}
+
+if (ctaClientBtn) {
+  ctaClientBtn.addEventListener("click", () => handleRoleCta("client"));
+}
+
+if (ctaCarrierBtn) {
+  ctaCarrierBtn.addEventListener("click", () => handleRoleCta("carrier"));
+}
+
+
+// ---------- Год в футере ----------
+const footerYear = document.getElementById("footerYear");
+if (footerYear) {
+  footerYear.textContent = new Date().getFullYear();
+}
+
+
 // ---------- Показать/скрыть пароль ----------
 document.querySelectorAll(".password-toggle").forEach((toggle) => {
   toggle.addEventListener("click", () => {
