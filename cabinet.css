@@ -219,3 +219,111 @@
   font-size: 14px;
   background: #fff;
 }
+
+
+/* ---------- Статусы, действия, отклики ---------- */
+.entity-card-col {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.entity-card-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.entity-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.entity-card-actions:empty {
+  display: none;
+}
+
+.status-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 999px;
+  margin-left: 6px;
+  background: #eee;
+  color: #555;
+  vertical-align: middle;
+}
+
+.status-active,
+.status-pending { background: #e8f5e9; color: #2e7d32; }
+.status-in_progress,
+.status-accepted { background: #e3f0fd; color: #1565c0; }
+.status-completed { background: #ededed; color: #555; }
+.status-cancelled,
+.status-rejected { background: #fdecea; color: #c0392b; }
+
+.action-btn {
+  border: 1px solid #ccc;
+  background: #fff;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.action-btn:hover { background: #f5f5f5; }
+.action-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.action-btn-primary {
+  background: #1a1a1a;
+  border-color: #1a1a1a;
+  color: #fff;
+}
+
+.action-btn-primary:hover { background: #333; }
+
+.respond-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.respond-form input {
+  flex: 1;
+  min-width: 140px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  border: 1px solid #ccc;
+  font-size: 13px;
+}
+
+.responses-box {
+  border-top: 1px solid #eaeaea;
+  padding-top: 10px;
+}
+
+.response-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px dashed #eee;
+}
+
+.response-row:last-child { border-bottom: none; }
+
+.response-title { font-size: 13px; font-weight: 600; }
+.response-price { font-size: 13px; color: #2e7d32; font-weight: 600; margin-top: 2px; }
+.verified-mark { color: #2e7d32; }
+
+.contact-box {
+  margin-top: 6px;
+  padding: 8px 10px;
+  background: #e3f0fd;
+  border-radius: 6px;
+  font-size: 13px;
+}

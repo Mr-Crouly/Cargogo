@@ -218,7 +218,10 @@ function renderProfile(user, profile) {
 
     if (publicCargosSection) {
       publicCargosSection.style.display = "block";
+      const myResponsesSection = document.getElementById("myResponsesSection");
+      if (myResponsesSection) myResponsesSection.style.display = "block";
       loadPublicCargos();
+      loadMyResponses();
     }
   }
 }
@@ -540,13 +543,60 @@ async function loadTrips() {
   }
 }
 
+// ---------- Общие помощники для статусов и запросов ----------
+const STATUS_LABELS = {
+  cargo: { active: "Активен", in_progress: "В работе", completed: "Завершён", cancelled: "Закрыт" },
+  trip: { active: "Активен", completed: "Завершён", cancelled: "Снят с публикации" },
+  response: { pending: "Ожидает", accepted: "Выбран", rejected: "Отклонён" },
+};
+
+function statusBadge(kind, status) {
+  const label = (STATUS_LABELS[kind] && STATUS_LABELS[kind][status]) || status;
+  return `<span class="status-badge status-${escapeHtml(status)}">${escapeHtml(label)}</span>`;
+}
+
+async function apiCall(method, url, body) {
+  try {
+    const response = await fetch(url, {
+      method,
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const data = await response.json();
+    return { ok: response.ok, data };
+  } catch (err) {
+    console.error("Ошибка запроса:", err);
+    return { ok: false, data: { message: "Не удалось связаться с сервером" } };
+  }
+}
+
+function makeActionButton(text, onClick, extraClass = "") {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = `action-btn ${extraClass}`.trim();
+  btn.textContent = text;
+  btn.addEventListener("click", onClick);
+  return btn;
+}
+
+async function changeStatus(url, status, onSuccess, confirmText) {
+  if (confirmText && !window.confirm(confirmText)) return;
+  const { ok, data } = await apiCall("PUT", url, { status });
+  if (!ok) {
+    showToast(data.message || "Не удалось изменить статус", true);
+    return;
+  }
+  showToast(data.message || "Статус обновлён");
+  onSuccess();
+}
+
 function renderTrips(trips) {
   tripsList.innerHTML = "";
   tripsEmpty.style.display = trips.length ? "none" : "block";
 
   trips.forEach((trip) => {
     const card = document.createElement("div");
-    card.className = "entity-card";
+    card.className = "entity-card entity-card-col";
 
     const subParts = [];
     if (trip.departure_date) subParts.push(formatDate(trip.departure_date));
@@ -554,14 +604,30 @@ function renderTrips(trips) {
     if (trip.vehicle_brand) subParts.push(`${trip.vehicle_brand} (${trip.vehicle_plate})`);
 
     card.innerHTML = `
-      <div class="entity-card-main">
-        <div class="entity-card-title">${escapeHtml(trip.origin_city)} → ${escapeHtml(trip.destination_city)}</div>
-        ${subParts.length ? `<div class="entity-card-sub">${escapeHtml(subParts.join(" · "))}</div>` : ""}
-        ${trip.price ? `<div class="entity-card-sub">${escapeHtml(formatMoney(trip.price))}</div>` : ""}
-        ${trip.comment ? `<div class="entity-card-sub">${escapeHtml(trip.comment)}</div>` : ""}
+      <div class="entity-card-row">
+        <div class="entity-card-main">
+          <div class="entity-card-title">${escapeHtml(trip.origin_city)} → ${escapeHtml(trip.destination_city)} ${statusBadge("trip", trip.status)}</div>
+          ${subParts.length ? `<div class="entity-card-sub">${escapeHtml(subParts.join(" · "))}</div>` : ""}
+          ${trip.price ? `<div class="entity-card-sub">${escapeHtml(formatMoney(trip.price))}</div>` : ""}
+          ${trip.comment ? `<div class="entity-card-sub">${escapeHtml(trip.comment)}</div>` : ""}
+        </div>
+        <button class="entity-card-delete" data-id="${trip.id}">Удалить</button>
       </div>
-      <button class="entity-card-delete" data-id="${trip.id}">Удалить</button>
+      <div class="entity-card-actions"></div>
     `;
+
+    const actions = card.querySelector(".entity-card-actions");
+    const statusUrl = `${API_URL}/trips/${trip.id}/status`;
+
+    if (trip.status === "active") {
+      actions.appendChild(makeActionButton("Рейс выполнен", () =>
+        changeStatus(statusUrl, "completed", loadTrips, "Отметить рейс выполненным? Он пропадёт с главной страницы.")));
+      actions.appendChild(makeActionButton("Снять с публикации", () =>
+        changeStatus(statusUrl, "cancelled", loadTrips)));
+    } else if (trip.status === "cancelled") {
+      actions.appendChild(makeActionButton("Опубликовать снова", () =>
+        changeStatus(statusUrl, "active", loadTrips)));
+    }
 
     card.querySelector(".entity-card-delete").addEventListener("click", () => {
       deleteEntity(`${API_URL}/trips/${trip.id}`, loadTrips, "Удалить этот рейс?");
@@ -659,29 +725,124 @@ function renderPublicCargos(cargos) {
 
   cargos.forEach((cargo) => {
     const card = document.createElement("div");
-    card.className = "entity-card";
+    card.className = "entity-card entity-card-col";
 
     const subParts = [];
     if (cargo.cargo_type) subParts.push(cargo.cargo_type);
     if (cargo.weight_kg) subParts.push(`${cargo.weight_kg} кг`);
     if (cargo.ready_date) subParts.push(`готов к ${formatDate(cargo.ready_date)}`);
 
-    const contactName = cargo.client_name || "Клиент";
-    const contactPhone = cargo.client_phone;
-
     card.innerHTML = `
       <div class="entity-card-main">
         <div class="entity-card-title">${escapeHtml(cargo.origin_city)} → ${escapeHtml(cargo.destination_city)}</div>
         ${subParts.length ? `<div class="entity-card-sub">${escapeHtml(subParts.join(" · "))}</div>` : ""}
-        ${cargo.price ? `<div class="entity-card-sub">${escapeHtml(formatMoney(cargo.price))}</div>` : ""}
+        ${cargo.price ? `<div class="entity-card-sub">Бюджет клиента: ${escapeHtml(formatMoney(cargo.price))}</div>` : ""}
         ${cargo.comment ? `<div class="entity-card-sub">${escapeHtml(cargo.comment)}</div>` : ""}
-        <div class="entity-card-sub">
-          Заказчик: ${escapeHtml(contactName)}${contactPhone ? ` · <a href="tel:${escapeHtml(contactPhone)}">${escapeHtml(contactPhone)}</a>` : ""}
-        </div>
+        <div class="entity-card-sub">Заказчик: ${escapeHtml(cargo.client_name || "Клиент")}</div>
       </div>
+      <div class="entity-card-actions"></div>
+      <form class="respond-form" style="display: none;">
+        <input type="number" min="1" class="respond-price" placeholder="Ваша цена, MDL" required />
+        <input type="text" class="respond-comment" placeholder="Комментарий (необязательно)" />
+        <button type="submit" class="action-btn action-btn-primary">Отправить отклик</button>
+      </form>
     `;
 
+    const actions = card.querySelector(".entity-card-actions");
+    const form = card.querySelector(".respond-form");
+
+    if (cargo.my_response_status) {
+      const priceText = cargo.my_response_price ? ` · ваша цена ${formatMoney(cargo.my_response_price)}` : "";
+      actions.innerHTML = `${statusBadge("response", cargo.my_response_status)}<span class="entity-card-sub">Вы откликнулись${escapeHtml(priceText)}</span>`;
+    } else {
+      actions.appendChild(makeActionButton("Откликнуться", () => {
+        form.style.display = form.style.display === "none" ? "flex" : "none";
+        if (cargo.price) form.querySelector(".respond-price").value = cargo.price;
+      }, "action-btn-primary"));
+    }
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const submitBtn = form.querySelector("button[type=submit]");
+      submitBtn.disabled = true;
+
+      const { ok, data } = await apiCall("POST", `${API_URL}/cargos/${cargo.id}/respond`, {
+        price: form.querySelector(".respond-price").value,
+        comment: form.querySelector(".respond-comment").value.trim(),
+      });
+
+      submitBtn.disabled = false;
+
+      if (!ok) {
+        showToast(data.message || "Не удалось отправить отклик", true);
+        loadPublicCargos();
+        return;
+      }
+
+      showToast("Отклик отправлен");
+      loadPublicCargos();
+      loadMyResponses();
+    });
+
     publicCargosList.appendChild(card);
+  });
+}
+
+// ==================== ПЕРЕВОЗЧИК: мои отклики ====================
+const myResponsesList = document.getElementById("myResponsesList");
+const myResponsesEmpty = document.getElementById("myResponsesEmpty");
+
+async function loadMyResponses() {
+  if (!myResponsesList) return;
+  const { ok, data } = await apiCall("GET", `${API_URL}/responses/my`);
+  if (!ok) return;
+  renderMyResponses(data.responses);
+}
+
+function renderMyResponses(responses) {
+  myResponsesList.innerHTML = "";
+  myResponsesEmpty.style.display = responses.length ? "none" : "block";
+
+  responses.forEach((item) => {
+    const card = document.createElement("div");
+    card.className = "entity-card entity-card-col";
+
+    const subParts = [];
+    if (item.cargo_type) subParts.push(item.cargo_type);
+    if (item.weight_kg) subParts.push(`${item.weight_kg} кг`);
+
+    let contactHtml = "";
+    if (item.status === "accepted") {
+      contactHtml = `
+        <div class="contact-box">
+          Вас выбрали! Заказчик: <strong>${escapeHtml(item.client_name || "Клиент")}</strong>
+          ${item.client_phone ? ` · <a href="tel:${escapeHtml(item.client_phone)}">${escapeHtml(item.client_phone)}</a>` : " · телефон не указан"}
+        </div>`;
+    }
+
+    card.innerHTML = `
+      <div class="entity-card-main">
+        <div class="entity-card-title">${escapeHtml(item.origin_city)} → ${escapeHtml(item.destination_city)} ${statusBadge("response", item.status)}</div>
+        ${subParts.length ? `<div class="entity-card-sub">${escapeHtml(subParts.join(" · "))}</div>` : ""}
+        <div class="entity-card-sub">Ваша цена: ${escapeHtml(formatMoney(item.price))}</div>
+        ${item.comment ? `<div class="entity-card-sub">${escapeHtml(item.comment)}</div>` : ""}
+        ${contactHtml}
+      </div>
+      <div class="entity-card-actions"></div>
+    `;
+
+    if (item.status === "pending") {
+      card.querySelector(".entity-card-actions").appendChild(
+        makeActionButton("Отозвать отклик", () => {
+          deleteEntity(`${API_URL}/responses/${item.id}`, () => {
+            loadMyResponses();
+            loadPublicCargos();
+          }, "Отозвать отклик?");
+        })
+      );
+    }
+
+    myResponsesList.appendChild(card);
   });
 }
 
@@ -712,13 +873,59 @@ async function loadCargos() {
   }
 }
 
+function renderCargoResponses(box, cargo, responses) {
+  box.innerHTML = "";
+
+  if (!responses.length) {
+    box.innerHTML = '<p class="empty-state">Пока нет откликов.</p>';
+    return;
+  }
+
+  responses.forEach((resp) => {
+    const row = document.createElement("div");
+    row.className = "response-row";
+
+    const who = resp.carrier_company
+      ? `${escapeHtml(resp.carrier_name)} · ${escapeHtml(resp.carrier_company)}`
+      : escapeHtml(resp.carrier_name);
+
+    row.innerHTML = `
+      <div class="response-main">
+        <div class="response-title">${who}${resp.carrier_verified ? ' <span class="verified-mark" title="Проверен">✓</span>' : ""} ${statusBadge("response", resp.status)}</div>
+        <div class="response-price">${escapeHtml(formatMoney(resp.price))}</div>
+        ${resp.comment ? `<div class="entity-card-sub">${escapeHtml(resp.comment)}</div>` : ""}
+        ${resp.status === "accepted" ? `<div class="contact-box">Контакты перевозчика: ${resp.carrier_phone ? `<a href="tel:${escapeHtml(resp.carrier_phone)}">${escapeHtml(resp.carrier_phone)}</a>` : "телефон не указан"}</div>` : ""}
+      </div>
+    `;
+
+    if (cargo.status === "active" && resp.status === "pending") {
+      row.appendChild(makeActionButton("Выбрать", async () => {
+        if (!window.confirm("Выбрать этого перевозчика? Остальные отклики будут отклонены, а груз пропадёт с витрины.")) return;
+        const { ok, data } = await apiCall("POST", `${API_URL}/responses/${resp.id}/accept`);
+        if (!ok) {
+          showToast(data.message || "Не удалось выбрать перевозчика", true);
+          loadCargos();
+          return;
+        }
+        showToast("Перевозчик выбран");
+        loadCargos();
+      }, "action-btn-primary"));
+    }
+
+    box.appendChild(row);
+  });
+}
+
+// id грузов, у которых сейчас раскрыт список откликов (чтобы не сворачивался при обновлении)
+const openResponseBoxes = new Set();
+
 function renderCargos(cargos) {
   cargosList.innerHTML = "";
   cargosEmpty.style.display = cargos.length ? "none" : "block";
 
   cargos.forEach((cargo) => {
     const card = document.createElement("div");
-    card.className = "entity-card";
+    card.className = "entity-card entity-card-col";
 
     const subParts = [];
     if (cargo.cargo_type) subParts.push(cargo.cargo_type);
@@ -726,20 +933,61 @@ function renderCargos(cargos) {
     if (cargo.ready_date) subParts.push(`готов к ${formatDate(cargo.ready_date)}`);
 
     card.innerHTML = `
-      <div class="entity-card-main">
-        <div class="entity-card-title">${escapeHtml(cargo.origin_city)} → ${escapeHtml(cargo.destination_city)}</div>
-        ${subParts.length ? `<div class="entity-card-sub">${escapeHtml(subParts.join(" · "))}</div>` : ""}
-        ${cargo.price ? `<div class="entity-card-sub">${escapeHtml(formatMoney(cargo.price))}</div>` : ""}
-        ${cargo.comment ? `<div class="entity-card-sub">${escapeHtml(cargo.comment)}</div>` : ""}
+      <div class="entity-card-row">
+        <div class="entity-card-main">
+          <div class="entity-card-title">${escapeHtml(cargo.origin_city)} → ${escapeHtml(cargo.destination_city)} ${statusBadge("cargo", cargo.status)}</div>
+          ${subParts.length ? `<div class="entity-card-sub">${escapeHtml(subParts.join(" · "))}</div>` : ""}
+          ${cargo.price ? `<div class="entity-card-sub">${escapeHtml(formatMoney(cargo.price))}</div>` : ""}
+          ${cargo.comment ? `<div class="entity-card-sub">${escapeHtml(cargo.comment)}</div>` : ""}
+        </div>
+        <button class="entity-card-delete" data-id="${cargo.id}">Удалить</button>
       </div>
-      <button class="entity-card-delete" data-id="${cargo.id}">Удалить</button>
+      <div class="entity-card-actions"></div>
+      <div class="responses-box" style="display: none;"></div>
     `;
 
+    const actions = card.querySelector(".entity-card-actions");
+    const box = card.querySelector(".responses-box");
+    const statusUrl = `${API_URL}/cargos/${cargo.id}/status`;
+    const count = cargo.responses_count || 0;
+
+    async function showResponses() {
+      const { ok, data } = await apiCall("GET", `${API_URL}/cargos/${cargo.id}/responses`);
+      if (!ok) {
+        showToast(data.message || "Не удалось загрузить отклики", true);
+        return;
+      }
+      renderCargoResponses(box, cargo, data.responses);
+      box.style.display = "block";
+      openResponseBoxes.add(cargo.id);
+    }
+
+    actions.appendChild(makeActionButton(`Отклики (${count})`, () => {
+      if (box.style.display === "none") {
+        showResponses();
+      } else {
+        box.style.display = "none";
+        openResponseBoxes.delete(cargo.id);
+      }
+    }, count > 0 && cargo.status === "active" ? "action-btn-primary" : ""));
+
+    if (cargo.status === "active") {
+      actions.appendChild(makeActionButton("Закрыть груз", () =>
+        changeStatus(statusUrl, "cancelled", loadCargos, "Закрыть груз? Он пропадёт с витрины.")));
+    } else if (cargo.status === "in_progress") {
+      actions.appendChild(makeActionButton("Груз доставлен", () =>
+        changeStatus(statusUrl, "completed", loadCargos, "Отметить груз доставленным?"), "action-btn-primary"));
+      actions.appendChild(makeActionButton("Отменить", () =>
+        changeStatus(statusUrl, "cancelled", loadCargos, "Отменить заказ?")));
+    }
+
     card.querySelector(".entity-card-delete").addEventListener("click", () => {
-      deleteEntity(`${API_URL}/cargos/${cargo.id}`, loadCargos, "Удалить этот груз?");
+      deleteEntity(`${API_URL}/cargos/${cargo.id}`, loadCargos, "Удалить этот груз вместе с откликами?");
     });
 
     cargosList.appendChild(card);
+
+    if (openResponseBoxes.has(cargo.id)) showResponses();
   });
 }
 

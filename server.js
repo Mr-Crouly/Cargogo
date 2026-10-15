@@ -116,6 +116,22 @@ async function ensureSchema() {
     "id", "client_id", "origin_city", "destination_city", "cargo_type", "weight_kg",
     "price", "ready_date", "comment", "status", "created_at",
   ]);
+
+  // ---------- responses (отклики перевозчиков на грузы) ----------
+  await pool.query(`CREATE TABLE IF NOT EXISTS responses (id SERIAL PRIMARY KEY);`);
+  await ensureColumn("responses", "cargo_id", "INTEGER REFERENCES cargos(id) ON DELETE CASCADE");
+  await ensureColumn("responses", "carrier_id", "INTEGER REFERENCES users(id) ON DELETE CASCADE");
+  await ensureColumn("responses", "price", "NUMERIC");
+  await ensureColumn("responses", "comment", "TEXT");
+  await ensureColumn("responses", "status", "VARCHAR(20) NOT NULL DEFAULT 'pending'");
+  await ensureColumn("responses", "created_at", "TIMESTAMP NOT NULL DEFAULT NOW()");
+  await relaxUnknownNotNullColumns("responses", [
+    "id", "cargo_id", "carrier_id", "price", "comment", "status", "created_at",
+  ]);
+  // Один перевозчик — один отклик на конкретный груз
+  await pool.query(
+    `CREATE UNIQUE INDEX IF NOT EXISTS responses_cargo_carrier_uniq ON responses (cargo_id, carrier_id)`
+  );
 }
 
 // ---------- POST /api/register ----------
@@ -537,9 +553,10 @@ app.delete("/api/trips/:id", authMiddleware, requireRole("carrier"), async (req,
 app.get("/api/cargos", authMiddleware, requireRole("client"), async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT id, origin_city, destination_city, cargo_type, weight_kg, price,
-              ready_date, comment, status, created_at
-       FROM cargos WHERE client_id = $1 ORDER BY created_at DESC`,
+      `SELECT c.id, c.origin_city, c.destination_city, c.cargo_type, c.weight_kg, c.price,
+              c.ready_date, c.comment, c.status, c.created_at,
+              (SELECT COUNT(*)::int FROM responses r WHERE r.cargo_id = c.id) AS responses_count
+       FROM cargos c WHERE c.client_id = $1 ORDER BY c.created_at DESC`,
       [req.user.userId]
     );
     return res.json({ cargos: result.rows });
@@ -550,18 +567,21 @@ app.get("/api/cargos", authMiddleware, requireRole("client"), async (req, res) =
 });
 
 // ---------- GET /api/cargos/public ----------
-// Витрина активных грузов от ВСЕХ клиентов — её видят перевозчики,
-// чтобы находить подходящие грузы и связываться с заказчиком напрямую.
+// Витрина активных грузов для перевозчиков. Телефон клиента здесь НЕ отдаётся —
+// он открывается только после того, как клиент выберет отклик этого перевозчика.
 app.get("/api/cargos/public", authMiddleware, requireRole("carrier"), async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT c.id, c.origin_city, c.destination_city, c.cargo_type, c.weight_kg,
               c.price, c.ready_date, c.comment, c.created_at,
-              u.full_name AS client_name, u.phone AS client_phone
+              u.full_name AS client_name,
+              r.status AS my_response_status, r.price AS my_response_price
        FROM cargos c
        JOIN users u ON u.id = c.client_id
+       LEFT JOIN responses r ON r.cargo_id = c.id AND r.carrier_id = $1
        WHERE c.status = 'active'
-       ORDER BY c.created_at DESC`
+       ORDER BY c.created_at DESC`,
+      [req.user.userId]
     );
     return res.json({ cargos: result.rows });
   } catch (err) {
@@ -614,6 +634,229 @@ app.delete("/api/cargos/:id", authMiddleware, requireRole("client"), async (req,
     return res.json({ message: "Груз удалён" });
   } catch (err) {
     console.error("Ошибка удаления груза:", err);
+    return res.status(500).json({ message: "Ошибка сервера" });
+  }
+});
+
+// ==================== ОТКЛИКИ И СТАТУСЫ ====================
+
+// ---------- POST /api/cargos/:id/respond (перевозчик) ----------
+app.post("/api/cargos/:id/respond", authMiddleware, requireRole("carrier"), async (req, res) => {
+  const price = toNumberOrNull(req.body.price);
+  const comment = req.body.comment ? String(req.body.comment).trim() : null;
+
+  if (price === null || price <= 0) {
+    return res.status(400).json({ message: "Укажите вашу цену" });
+  }
+
+  try {
+    const cargo = await pool.query("SELECT id, status FROM cargos WHERE id = $1", [req.params.id]);
+    if (cargo.rows.length === 0) {
+      return res.status(404).json({ message: "Груз не найден" });
+    }
+    if (cargo.rows[0].status !== "active") {
+      return res.status(409).json({ message: "Этот груз уже недоступен для откликов" });
+    }
+
+    const existing = await pool.query(
+      "SELECT id FROM responses WHERE cargo_id = $1 AND carrier_id = $2",
+      [req.params.id, req.user.userId]
+    );
+    if (existing.rows.length > 0) {
+      return res.status(409).json({ message: "Вы уже откликнулись на этот груз" });
+    }
+
+    const result = await pool.query(
+      `INSERT INTO responses (cargo_id, carrier_id, price, comment)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, cargo_id, price, comment, status, created_at`,
+      [req.params.id, req.user.userId, price, comment]
+    );
+    return res.status(201).json({ response: result.rows[0] });
+  } catch (err) {
+    console.error("Ошибка отклика:", err);
+    return res.status(500).json({ message: "Ошибка сервера" });
+  }
+});
+
+// ---------- GET /api/responses/my (перевозчик) ----------
+// Свои отклики. Контакты клиента видны только у принятых.
+app.get("/api/responses/my", authMiddleware, requireRole("carrier"), async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT r.id, r.price, r.comment, r.status, r.created_at,
+              c.id AS cargo_id, c.origin_city, c.destination_city, c.cargo_type,
+              c.weight_kg, c.ready_date, c.status AS cargo_status,
+              u.full_name AS client_name,
+              CASE WHEN r.status = 'accepted' THEN u.phone END AS client_phone
+       FROM responses r
+       JOIN cargos c ON c.id = r.cargo_id
+       JOIN users u ON u.id = c.client_id
+       WHERE r.carrier_id = $1
+       ORDER BY r.created_at DESC`,
+      [req.user.userId]
+    );
+    return res.json({ responses: result.rows });
+  } catch (err) {
+    console.error("Ошибка получения откликов:", err);
+    return res.status(500).json({ message: "Ошибка сервера" });
+  }
+});
+
+// ---------- DELETE /api/responses/:id (перевозчик отзывает отклик) ----------
+app.delete("/api/responses/:id", authMiddleware, requireRole("carrier"), async (req, res) => {
+  try {
+    const result = await pool.query(
+      "DELETE FROM responses WHERE id = $1 AND carrier_id = $2 AND status = 'pending' RETURNING id",
+      [req.params.id, req.user.userId]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: "Отклик не найден или уже обработан" });
+    }
+    return res.json({ message: "Отклик отозван" });
+  } catch (err) {
+    console.error("Ошибка отзыва отклика:", err);
+    return res.status(500).json({ message: "Ошибка сервера" });
+  }
+});
+
+// ---------- GET /api/cargos/:id/responses (клиент) ----------
+// Отклики на свой груз. Телефон перевозчика — только у выбранного.
+app.get("/api/cargos/:id/responses", authMiddleware, requireRole("client"), async (req, res) => {
+  try {
+    const own = await pool.query(
+      "SELECT id FROM cargos WHERE id = $1 AND client_id = $2",
+      [req.params.id, req.user.userId]
+    );
+    if (own.rows.length === 0) {
+      return res.status(404).json({ message: "Груз не найден" });
+    }
+
+    const result = await pool.query(
+      `SELECT r.id, r.price, r.comment, r.status, r.created_at,
+              u.full_name AS carrier_name,
+              cp.company_name AS carrier_company,
+              cp.is_verified AS carrier_verified,
+              CASE WHEN r.status = 'accepted' THEN u.phone END AS carrier_phone
+       FROM responses r
+       JOIN users u ON u.id = r.carrier_id
+       LEFT JOIN carrier_profiles cp ON cp.user_id = r.carrier_id
+       WHERE r.cargo_id = $1
+       ORDER BY (r.status = 'accepted') DESC, r.price ASC NULLS LAST, r.created_at ASC`,
+      [req.params.id]
+    );
+    return res.json({ responses: result.rows });
+  } catch (err) {
+    console.error("Ошибка получения откликов на груз:", err);
+    return res.status(500).json({ message: "Ошибка сервера" });
+  }
+});
+
+// ---------- POST /api/responses/:id/accept (клиент выбирает перевозчика) ----------
+app.post("/api/responses/:id/accept", authMiddleware, requireRole("client"), async (req, res) => {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    // Блокируем строки отклика и груза, чтобы два параллельных клика не выбрали двоих
+    const found = await client.query(
+      `SELECT r.id, r.cargo_id, r.status AS response_status, c.status AS cargo_status
+       FROM responses r
+       JOIN cargos c ON c.id = r.cargo_id
+       WHERE r.id = $1 AND c.client_id = $2
+       FOR UPDATE OF r, c`,
+      [req.params.id, req.user.userId]
+    );
+
+    if (found.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ message: "Отклик не найден" });
+    }
+
+    const row = found.rows[0];
+    if (row.cargo_status !== "active" || row.response_status !== "pending") {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ message: "Выбор уже сделан или груз недоступен" });
+    }
+
+    await client.query("UPDATE responses SET status = 'accepted' WHERE id = $1", [row.id]);
+    await client.query(
+      "UPDATE responses SET status = 'rejected' WHERE cargo_id = $1 AND id <> $2 AND status = 'pending'",
+      [row.cargo_id, row.id]
+    );
+    await client.query("UPDATE cargos SET status = 'in_progress' WHERE id = $1", [row.cargo_id]);
+
+    await client.query("COMMIT");
+    return res.json({ message: "Перевозчик выбран" });
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error("Ошибка выбора отклика:", err);
+    return res.status(500).json({ message: "Ошибка сервера" });
+  } finally {
+    client.release();
+  }
+});
+
+// ---------- PUT /api/cargos/:id/status (клиент) ----------
+// Допустимые переходы: active → cancelled, in_progress → completed / cancelled
+const CARGO_TRANSITIONS = {
+  active: ["cancelled"],
+  in_progress: ["completed", "cancelled"],
+};
+
+app.put("/api/cargos/:id/status", authMiddleware, requireRole("client"), async (req, res) => {
+  const { status } = req.body;
+
+  try {
+    const cargo = await pool.query(
+      "SELECT id, status FROM cargos WHERE id = $1 AND client_id = $2",
+      [req.params.id, req.user.userId]
+    );
+    if (cargo.rows.length === 0) {
+      return res.status(404).json({ message: "Груз не найден" });
+    }
+
+    const allowed = CARGO_TRANSITIONS[cargo.rows[0].status] || [];
+    if (!allowed.includes(status)) {
+      return res.status(409).json({ message: "Недопустимое изменение статуса" });
+    }
+
+    await pool.query("UPDATE cargos SET status = $1 WHERE id = $2", [status, req.params.id]);
+    return res.json({ message: "Статус обновлён", status });
+  } catch (err) {
+    console.error("Ошибка смены статуса груза:", err);
+    return res.status(500).json({ message: "Ошибка сервера" });
+  }
+});
+
+// ---------- PUT /api/trips/:id/status (перевозчик) ----------
+// active → completed / cancelled, cancelled → active (опубликовать снова)
+const TRIP_TRANSITIONS = {
+  active: ["completed", "cancelled"],
+  cancelled: ["active"],
+};
+
+app.put("/api/trips/:id/status", authMiddleware, requireRole("carrier"), async (req, res) => {
+  const { status } = req.body;
+
+  try {
+    const trip = await pool.query(
+      "SELECT id, status FROM trips WHERE id = $1 AND carrier_id = $2",
+      [req.params.id, req.user.userId]
+    );
+    if (trip.rows.length === 0) {
+      return res.status(404).json({ message: "Рейс не найден" });
+    }
+
+    const allowed = TRIP_TRANSITIONS[trip.rows[0].status] || [];
+    if (!allowed.includes(status)) {
+      return res.status(409).json({ message: "Недопустимое изменение статуса" });
+    }
+
+    await pool.query("UPDATE trips SET status = $1 WHERE id = $2", [status, req.params.id]);
+    return res.json({ message: "Статус обновлён", status });
+  } catch (err) {
+    console.error("Ошибка смены статуса рейса:", err);
     return res.status(500).json({ message: "Ошибка сервера" });
   }
 });
