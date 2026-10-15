@@ -160,19 +160,13 @@
 
         <form id="tripForm" class="inline-form" style="display: none;">
           <label for="tripOrigin">Откуда</label>
-          <select id="tripOrigin" required>
+          <select id="tripOrigin" data-cities required>
             <option value="">Выберите город</option>
-            <option>Кишинёв</option>
-            <option>Бельцы</option>
-            <option>Тирасполь</option>
           </select>
 
           <label for="tripDestination">Куда</label>
-          <select id="tripDestination" required>
+          <select id="tripDestination" data-cities required>
             <option value="">Выберите город</option>
-            <option>Кишинёв</option>
-            <option>Бельцы</option>
-            <option>Тирасполь</option>
           </select>
 
           <label for="tripDate">Дата отправления</label>
@@ -231,19 +225,13 @@
 
         <form id="cargoForm" class="inline-form" style="display: none;">
           <label for="cargoOrigin">Откуда</label>
-          <select id="cargoOrigin" required>
+          <select id="cargoOrigin" data-cities required>
             <option value="">Выберите город</option>
-            <option>Кишинёв</option>
-            <option>Бельцы</option>
-            <option>Тирасполь</option>
           </select>
 
           <label for="cargoDestination">Куда</label>
-          <select id="cargoDestination" required>
+          <select id="cargoDestination" data-cities required>
             <option value="">Выберите город</option>
-            <option>Кишинёв</option>
-            <option>Бельцы</option>
-            <option>Тирасполь</option>
           </select>
 
           <label for="cargoType">Тип груза</label>
@@ -276,6 +264,8 @@
       <a href="index.html" class="link">Вернуться на главную и войти заново</a>
     </div>
   </main>
+
+  <script src="cities.js"></script>
 
   <script src="cabinet.js"></script>
 </body>

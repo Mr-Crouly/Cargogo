@@ -37,17 +37,11 @@
     <p>Биржа грузоперевозок для Молдовы — без посредников</p>
 
     <div class="search-bar">
-      <select id="originCity">
+      <select id="originCity" data-cities>
         <option value="">Откуда</option>
-        <option>Кишинёв</option>
-        <option>Бельцы</option>
-        <option>Тирасполь</option>
       </select>
-      <select id="destinationCity">
+      <select id="destinationCity" data-cities>
         <option value="">Куда</option>
-        <option>Кишинёв</option>
-        <option>Бельцы</option>
-        <option>Тирасполь</option>
       </select>
       <button class="btn btn-primary" id="searchBtn">Найти</button>
       <button class="btn btn-outline" id="resetSearchBtn" style="display: none;">Сбросить</button>
@@ -194,6 +188,8 @@
       <p class="modal-footer">Нет аккаунта? <span class="link" id="switchToRegisterLink">Зарегистрироваться</span></p>
     </div>
   </div>
+
+  <script src="cities.js"></script>
 
   <script src="script.js"></script>
 </body>
