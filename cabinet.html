@@ -257,6 +257,32 @@
           </div>
         </form>
       </section>
+
+      <!-- ---------- Сообщения (клиент и перевозчик) ---------- -->
+      <section class="cabinet-section" id="messagesSection" style="display: none;">
+        <p class="section-title">Сообщения</p>
+
+        <div id="chatListView">
+          <p class="section-subtitle">Переписка с клиентом или перевозчиком по грузу, который уже в работе.</p>
+          <div id="chatList" class="chat-list"><p class="empty-hint">Загрузка...</p></div>
+        </div>
+
+        <div id="chatConversation" class="chat-conversation" style="display: none;">
+          <div class="chat-conv-header">
+            <button type="button" class="action-btn" id="chatBackBtn">← Назад</button>
+            <div>
+              <div class="chat-conv-title" id="chatConvTitle">—</div>
+              <div class="chat-conv-route" id="chatConvRoute">—</div>
+            </div>
+          </div>
+          <div class="chat-messages" id="chatMessages"></div>
+          <p class="chat-readonly" id="chatReadonly" style="display: none;">Груз уже не в работе — переписка доступна только для чтения.</p>
+          <form class="chat-form" id="chatForm">
+            <textarea id="chatInput" rows="1" maxlength="2000" placeholder="Напишите сообщение..."></textarea>
+            <button type="submit" class="btn btn-primary" id="chatSendBtn">Отправить</button>
+          </form>
+        </div>
+      </section>
     </div>
 
     <div id="errorState" class="error-state" style="display: none;">
@@ -267,6 +293,7 @@
 
   <script src="cities.js"></script>
 
+  <script src="chat.js"></script>
   <script src="cabinet.js"></script>
 </body>
 </html>

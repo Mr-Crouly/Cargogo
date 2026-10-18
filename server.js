@@ -132,6 +132,42 @@ async function ensureSchema() {
   await pool.query(
     `CREATE UNIQUE INDEX IF NOT EXISTS responses_cargo_carrier_uniq ON responses (cargo_id, carrier_id)`
   );
+
+  // ---------- chats (переписка клиент ↔ перевозчик по конкретному грузу) ----------
+  await pool.query(`CREATE TABLE IF NOT EXISTS chats (id SERIAL PRIMARY KEY);`);
+  await ensureColumn("chats", "cargo_id", "INTEGER REFERENCES cargos(id) ON DELETE CASCADE");
+  await ensureColumn("chats", "client_id", "INTEGER REFERENCES users(id) ON DELETE CASCADE");
+  await ensureColumn("chats", "carrier_id", "INTEGER REFERENCES users(id) ON DELETE CASCADE");
+  await ensureColumn("chats", "created_at", "TIMESTAMP NOT NULL DEFAULT NOW()");
+  await relaxUnknownNotNullColumns("chats", [
+    "id", "cargo_id", "client_id", "carrier_id", "created_at",
+  ]);
+
+  // ---------- messages ----------
+  await pool.query(`CREATE TABLE IF NOT EXISTS messages (id SERIAL PRIMARY KEY);`);
+  await ensureColumn("messages", "chat_id", "INTEGER REFERENCES chats(id) ON DELETE CASCADE");
+  await ensureColumn("messages", "sender_id", "INTEGER REFERENCES users(id) ON DELETE CASCADE");
+  await ensureColumn("messages", "message_text", "TEXT");
+  await ensureColumn("messages", "created_at", "TIMESTAMP NOT NULL DEFAULT NOW()");
+  await relaxUnknownNotNullColumns("messages", [
+    "id", "chat_id", "sender_id", "message_text", "created_at",
+  ]);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS messages_chat_id_idx ON messages (chat_id, id)`
+  );
+
+  // Для уже принятых ранее откликов создаём чаты задним числом
+  // (NOT EXISTS вместо ON CONFLICT — не зависит от наличия уникального индекса)
+  await pool.query(`
+    INSERT INTO chats (cargo_id, client_id, carrier_id)
+    SELECT r.cargo_id, c.client_id, r.carrier_id
+    FROM responses r
+    JOIN cargos c ON c.id = r.cargo_id
+    WHERE r.status = 'accepted'
+      AND NOT EXISTS (
+        SELECT 1 FROM chats ch WHERE ch.cargo_id = r.cargo_id AND ch.carrier_id = r.carrier_id
+      )
+  `);
 }
 
 // ---------- POST /api/register ----------
@@ -760,7 +796,7 @@ app.post("/api/responses/:id/accept", authMiddleware, requireRole("client"), asy
 
     // Блокируем строки отклика и груза, чтобы два параллельных клика не выбрали двоих
     const found = await client.query(
-      `SELECT r.id, r.cargo_id, r.status AS response_status, c.status AS cargo_status
+      `SELECT r.id, r.cargo_id, r.carrier_id, r.status AS response_status, c.status AS cargo_status
        FROM responses r
        JOIN cargos c ON c.id = r.cargo_id
        WHERE r.id = $1 AND c.client_id = $2
@@ -785,6 +821,14 @@ app.post("/api/responses/:id/accept", authMiddleware, requireRole("client"), asy
       [row.cargo_id, row.id]
     );
     await client.query("UPDATE cargos SET status = 'in_progress' WHERE id = $1", [row.cargo_id]);
+
+    // Открываем чат между клиентом и выбранным перевозчиком
+    await client.query(
+      `INSERT INTO chats (cargo_id, client_id, carrier_id)
+       SELECT $1::int, $2::int, $3::int
+       WHERE NOT EXISTS (SELECT 1 FROM chats WHERE cargo_id = $1::int AND carrier_id = $3::int)`,
+      [row.cargo_id, req.user.userId, row.carrier_id]
+    );
 
     await client.query("COMMIT");
     return res.json({ message: "Перевозчик выбран" });
@@ -857,6 +901,107 @@ app.put("/api/trips/:id/status", authMiddleware, requireRole("carrier"), async (
     return res.json({ message: "Статус обновлён", status });
   } catch (err) {
     console.error("Ошибка смены статуса рейса:", err);
+    return res.status(500).json({ message: "Ошибка сервера" });
+  }
+});
+
+// ---------- Чаты ----------
+// Возвращает чат, только если текущий пользователь — его участник.
+// Для чужих и несуществующих чатов результат одинаковый (null) — не раскрываем наличие чата.
+async function getChatForUser(chatId, userId) {
+  const result = await pool.query(
+    `SELECT ch.id, ch.cargo_id, ch.client_id, ch.carrier_id, c.status AS cargo_status
+     FROM chats ch
+     JOIN cargos c ON c.id = ch.cargo_id
+     WHERE ch.id = $1 AND (ch.client_id = $2 OR ch.carrier_id = $2)`,
+    [chatId, userId]
+  );
+  return result.rows[0] || null;
+}
+
+const MAX_MESSAGE_LENGTH = 2000;
+
+// ---------- GET /api/chats ----------
+app.get("/api/chats", authMiddleware, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT ch.id, ch.cargo_id, c.origin_city, c.destination_city, c.cargo_type,
+              c.status AS cargo_status,
+              u.full_name AS partner_name,
+              lm.message_text AS last_message, lm.created_at AS last_message_at,
+              lm.sender_id AS last_sender_id, ch.created_at
+       FROM chats ch
+       JOIN cargos c ON c.id = ch.cargo_id
+       JOIN users u ON u.id = CASE WHEN ch.client_id = $1 THEN ch.carrier_id ELSE ch.client_id END
+       LEFT JOIN LATERAL (
+         SELECT message_text, created_at, sender_id FROM messages
+         WHERE chat_id = ch.id ORDER BY id DESC LIMIT 1
+       ) lm ON TRUE
+       WHERE ch.client_id = $1 OR ch.carrier_id = $1
+       ORDER BY COALESCE(lm.created_at, ch.created_at) DESC`,
+      [req.user.userId]
+    );
+    return res.json({ chats: result.rows });
+  } catch (err) {
+    console.error("Ошибка загрузки чатов:", err);
+    return res.status(500).json({ message: "Ошибка сервера" });
+  }
+});
+
+// ---------- GET /api/chats/:id/messages?after=<id сообщения> ----------
+// Без after — вся история; с after — только новые сообщения (для опроса раз в пару секунд).
+app.get("/api/chats/:id/messages", authMiddleware, async (req, res) => {
+  const chatId = Number(req.params.id);
+  const after = Number(req.query.after) || 0;
+  if (!Number.isInteger(chatId)) return res.status(404).json({ message: "Чат не найден" });
+
+  try {
+    const chat = await getChatForUser(chatId, req.user.userId);
+    if (!chat) return res.status(404).json({ message: "Чат не найден" });
+
+    const result = await pool.query(
+      `SELECT id, sender_id, message_text, created_at
+       FROM messages WHERE chat_id = $1 AND id > $2 ORDER BY id ASC`,
+      [chatId, after]
+    );
+    return res.json({
+      messages: result.rows,
+      canSend: chat.cargo_status === "in_progress",
+    });
+  } catch (err) {
+    console.error("Ошибка загрузки сообщений:", err);
+    return res.status(500).json({ message: "Ошибка сервера" });
+  }
+});
+
+// ---------- POST /api/chats/:id/messages ----------
+app.post("/api/chats/:id/messages", authMiddleware, async (req, res) => {
+  const chatId = Number(req.params.id);
+  if (!Number.isInteger(chatId)) return res.status(404).json({ message: "Чат не найден" });
+
+  const text = typeof req.body.text === "string" ? req.body.text.trim() : "";
+  if (!text) return res.status(400).json({ message: "Введите сообщение" });
+  if (text.length > MAX_MESSAGE_LENGTH) {
+    return res.status(400).json({ message: `Сообщение слишком длинное (максимум ${MAX_MESSAGE_LENGTH} символов)` });
+  }
+
+  try {
+    const chat = await getChatForUser(chatId, req.user.userId);
+    if (!chat) return res.status(404).json({ message: "Чат не найден" });
+
+    if (chat.cargo_status !== "in_progress") {
+      return res.status(409).json({ message: "Груз уже не в работе — переписка доступна только для чтения" });
+    }
+
+    const result = await pool.query(
+      `INSERT INTO messages (chat_id, sender_id, message_text)
+       VALUES ($1, $2, $3)
+       RETURNING id, sender_id, message_text, created_at`,
+      [chatId, req.user.userId, text]
+    );
+    return res.status(201).json({ message: result.rows[0] });
+  } catch (err) {
+    console.error("Ошибка отправки сообщения:", err);
     return res.status(500).json({ message: "Ошибка сервера" });
   }
 });

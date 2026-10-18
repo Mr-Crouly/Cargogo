@@ -224,6 +224,11 @@ function renderProfile(user, profile) {
       loadMyResponses();
     }
   }
+
+  // ---------- Сообщения (обе роли) ----------
+  if (user.role === "client" || user.role === "carrier") {
+    initMessages();
+  }
 }
 
 
