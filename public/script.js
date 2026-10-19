@@ -125,6 +125,23 @@ if (roleCarrierBtn) {
 // Позволяет спокойно находиться на главной, будучи авторизованным:
 // вместо "Войти"/"Регистрация" показываем ссылку на кабинет,
 // и не разлогиниваем пользователя просто за визит на index.html.
+// Число непрочитанных уведомлений рядом со ссылкой «Личный кабинет»
+async function loadHomeNotifBadge(token) {
+  const badge = document.getElementById("homeNotifBadge");
+  if (!badge) return;
+  try {
+    const response = await fetch(`${API_URL}/notifications/count`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) return;
+    const { unread } = await response.json();
+    badge.textContent = unread > 99 ? "99+" : unread;
+    badge.style.display = unread > 0 ? "inline-block" : "none";
+  } catch (err) {
+    // не критично: просто не показываем счётчик
+  }
+}
+
 async function checkAuthState() {
   const token = localStorage.getItem("token");
 
@@ -148,6 +165,7 @@ async function checkAuthState() {
 
     const data = await response.json();
     showAccountButtons(data.user.full_name);
+    loadHomeNotifBadge(token);
   } catch (err) {
     console.error("Не удалось проверить сессию:", err);
     // Сеть недоступна — не выкидываем пользователя, просто оставляем гостевой вид
@@ -522,7 +540,7 @@ if (loginForm) {
 
     if (!success) {
       loginErrorMessage.textContent =
-        "Неверный email или пароль";
+        lastLoginError || "Неверный email или пароль";
       loginSubmitBtn.disabled = false;
       loginSubmitBtn.textContent = "Войти";
     }
@@ -533,7 +551,10 @@ if (loginForm) {
 
 
 // ---------- Функция входа ----------
+let lastLoginError = "";
+
 async function loginAndRedirect(email, password) {
+  lastLoginError = "";
   try {
     const response = await fetch(`${API_URL}/login`, {
       method: "POST",
@@ -548,8 +569,9 @@ async function loginAndRedirect(email, password) {
 
     const data = await response.json();
 
-    // Если сервер вернул ошибку
+    // Если сервер вернул ошибку — запоминаем его сообщение (лимит попыток, остаток попыток)
     if (!response.ok) {
+      lastLoginError = data.message || "";
       return false;
     }
 
@@ -563,6 +585,7 @@ async function loginAndRedirect(email, password) {
 
   } catch (err) {
     console.error("Ошибка входа:", err);
+    lastLoginError = "Не удалось связаться с сервером";
     return false;
   }
 }

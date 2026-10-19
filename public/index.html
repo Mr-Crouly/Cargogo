@@ -26,7 +26,7 @@
          не теряя сессию и не выходя из аккаунта. -->
     <div class="nav-buttons" id="accountButtons" style="display: none;">
       <span class="account-greeting" id="accountGreeting"></span>
-      <a href="cabinet.html" class="btn btn-outline">Личный кабинет</a>
+      <a href="cabinet.html" class="btn btn-outline">Личный кабинет<span class="notif-badge" id="homeNotifBadge" style="display: none; margin-left: 6px;"></span></a>
       <button class="btn btn-primary" id="logoutFromHomeBtn">Выйти</button>
     </div>
   </header>
@@ -148,7 +148,7 @@
 
         <label for="password">Пароль</label>
         <div class="password-field">
-          <input type="password" id="password" name="password" placeholder="Минимум 8 символов" minlength="8" required />
+          <input type="password" id="password" name="password" placeholder="Минимум 8 символов, буквы и цифры" minlength="8" maxlength="72" required />
           <span class="password-toggle" data-target="password">Показать</span>
         </div>
 

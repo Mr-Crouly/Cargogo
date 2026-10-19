@@ -64,7 +64,7 @@ function renderChatList(chats) {
 
     card.innerHTML = `
       <div class="chat-list-top">
-        <span class="chat-list-name">${escapeHtml(chat.partner_name)}</span>
+        <span class="chat-list-name">${escapeHtml(chat.partner_name)}${chat.unread_count > 0 ? ` <span class="notif-badge">${chat.unread_count}</span>` : ""}</span>
         <span class="chat-list-time">${chat.last_message_at ? escapeHtml(chatTime(chat.last_message_at)) : ""}</span>
       </div>
       <div class="chat-list-route">${escapeHtml(chat.origin_city)} → ${escapeHtml(chat.destination_city)}${chat.cargo_type ? " · " + escapeHtml(chat.cargo_type) : ""}</div>
@@ -92,6 +92,7 @@ async function openChat(chat) {
 
   clearInterval(chatState.listTimer);
   await fetchMessages();
+  if (typeof window.fetchUnreadCount === "function") window.fetchUnreadCount();
   chatEls.messages.scrollTop = chatEls.messages.scrollHeight;
   if (chatState.canSend) chatEls.input.focus();
 

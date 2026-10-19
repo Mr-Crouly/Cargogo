@@ -9,6 +9,9 @@ require("dotenv").config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// За прокси (nginx, Heroku и т.п.) включите TRUST_PROXY=1, иначе все пользователи будут выглядеть как один IP
+if (process.env.TRUST_PROXY) app.set("trust proxy", Number(process.env.TRUST_PROXY) || 1);
+
 app.use(cors());
 app.use(express.json());
 app.use(express.static(__dirname));
@@ -31,6 +34,237 @@ function toNumberOrNull(value) {
   const num = Number(value);
   return Number.isNaN(num) ? null : num;
 }
+
+// ---------- Проверка входных данных ----------
+class ValidationError extends Error {}
+function bad(message) { throw new ValidationError(message); }
+function sendValidation(res, err) {
+  if (err instanceof ValidationError) return res.status(400).json({ message: err.message });
+  console.error("Непредвиденная ошибка проверки данных:", err);
+  return res.status(500).json({ message: "Ошибка сервера" });
+}
+
+function optText(value, max, label) {
+  if (value === undefined || value === null) return null;
+  const text = String(value).trim();
+  if (!text) return null;
+  if (text.length > max) bad(`${label}: не больше ${max} символов`);
+  return text;
+}
+function reqText(value, max, label) {
+  const text = optText(value, max, label);
+  if (!text) bad(`${label}: обязательное поле`);
+  return text;
+}
+function optNumber(value, max, label) {
+  if (value === undefined || value === null || String(value).trim() === "") return null;
+  const num = Number(value);
+  if (!Number.isFinite(num) || num <= 0 || num > max) {
+    bad(`${label}: укажите число больше 0 и не более ${max.toLocaleString("ru-RU")}`);
+  }
+  return num;
+}
+// Дата в формате ГГГГ-ММ-ДД, не в прошлом и не дальше чем через 2 года
+function optDate(value, label) {
+  if (value === undefined || value === null || String(value).trim() === "") return null;
+  const text = String(value).trim();
+  const parsed = new Date(`${text}T00:00:00Z`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text) || Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== text) {
+    bad(`${label}: некорректная дата`);
+  }
+  const today = new Date();
+  const limit = new Date(today);
+  limit.setUTCFullYear(limit.getUTCFullYear() + 2);
+  if (text < today.toISOString().slice(0, 10)) bad(`${label}: дата не может быть в прошлом`);
+  if (text > limit.toISOString().slice(0, 10)) bad(`${label}: слишком далёкая дата`);
+  return text;
+}
+function reqCity(value, label) {
+  const text = reqText(value, 100, label);
+  if (!/\p{L}/u.test(text)) bad(`${label}: укажите название населённого пункта`);
+  return text;
+}
+function checkName(value) {
+  const text = reqText(value, 100, "Имя");
+  if (text.length < 2) bad("Имя: не менее 2 символов");
+  if (!/\p{L}/u.test(text)) bad("Имя должно содержать буквы");
+  if (/[<>]/.test(text)) bad("Имя содержит недопустимые символы");
+  return text;
+}
+function checkEmail(value) {
+  const text = String(value || "").trim().toLowerCase();
+  if (!text) bad("Укажите email");
+  if (text.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(text)) bad("Укажите корректный email");
+  return text;
+}
+function checkPhone(value, required) {
+  const text = String(value || "").trim();
+  if (!text) {
+    if (required) bad("Укажите телефон");
+    return null;
+  }
+  if (!/^\+?[0-9][0-9\s\-()]*$/.test(text)) bad("Телефон: допустимы цифры, пробелы, дефис, скобки и «+» в начале");
+  const digits = text.replace(/\D/g, "").length;
+  if (digits < 8 || digits > 15) bad("Телефон: должно быть от 8 до 15 цифр");
+  return text;
+}
+// Пароль: 8–72 байта (ограничение bcrypt), минимум одна буква и одна цифра
+function checkPassword(value) {
+  if (typeof value !== "string" || !value) bad("Укажите пароль");
+  if (value.length < 8) bad("Пароль: не менее 8 символов");
+  if (Buffer.byteLength(value, "utf8") > 72) bad("Пароль слишком длинный (максимум 72 байта)");
+  if (!/\p{L}/u.test(value) || !/\d/.test(value)) bad("Пароль должен содержать буквы и цифры");
+  return value;
+}
+
+function validateRegister(body) {
+  return {
+    fullName: checkName(body.fullName),
+    email: checkEmail(body.email),
+    phone: checkPhone(body.phone, true),
+    password: checkPassword(body.password),
+    role: body.role,
+  };
+}
+function validateProfile(body) {
+  const taxId = optText(body.taxId, 30, "IDNO");
+  if (taxId && !/^[0-9A-Za-zА-Яа-яЁё\-\s]+$/.test(taxId)) bad("IDNO: допустимы буквы, цифры и дефис");
+  return {
+    fullName: checkName(body.fullName),
+    phone: checkPhone(body.phone, false),
+    companyName: optText(body.companyName, 150, "Название компании"),
+    taxId,
+    address: optText(body.address, 200, "Адрес"),
+    licenseNumber: optText(body.licenseNumber, 50, "Номер лицензии"),
+  };
+}
+function validateVehicle(body) {
+  const plateNumber = reqText(body.plateNumber, 30, "Гос. номер");
+  if (!/^[\p{L}\p{N}][\p{L}\p{N}\s\-]{1,29}$/u.test(plateNumber)) bad("Гос. номер: допустимы буквы, цифры, пробел и дефис");
+  return {
+    brand: reqText(body.brand, 100, "Марка"),
+    model: optText(body.model, 100, "Модель"),
+    plateNumber,
+    capacityKg: optNumber(body.capacityKg, 100000, "Грузоподъёмность"),
+    bodyType: optText(body.bodyType, 100, "Тип кузова"),
+  };
+}
+function validateTrip(body) {
+  const rawVehicle = body.vehicleId;
+  const vehicleId = rawVehicle ? Number(rawVehicle) : null;
+  if (vehicleId !== null && !Number.isInteger(vehicleId)) bad("Некорректный автомобиль");
+  return {
+    originCity: reqCity(body.originCity, "Откуда"),
+    destinationCity: reqCity(body.destinationCity, "Куда"),
+    departureDate: optDate(body.departureDate, "Дата отправления"),
+    price: optNumber(body.price, 100000000, "Цена"),
+    capacityKg: optNumber(body.capacityKg, 100000, "Свободная загрузка"),
+    comment: optText(body.comment, 500, "Комментарий"),
+    vehicleId,
+  };
+}
+function validateCargo(body) {
+  return {
+    originCity: reqCity(body.originCity, "Откуда"),
+    destinationCity: reqCity(body.destinationCity, "Куда"),
+    cargoType: optText(body.cargoType, 100, "Тип груза"),
+    weightKg: optNumber(body.weightKg, 200000, "Вес"),
+    price: optNumber(body.price, 100000000, "Бюджет"),
+    readyDate: optDate(body.readyDate, "Дата готовности"),
+    comment: optText(body.comment, 500, "Комментарий"),
+  };
+}
+function validateRespond(body) {
+  const price = optNumber(body.price, 100000000, "Цена");
+  if (price === null) bad("Укажите вашу цену");
+  return { price, comment: optText(body.comment, 500, "Комментарий") };
+}
+
+// ---------- Ограничение частоты попыток ----------
+// Хранится в памяти сервера: после перезапуска счётчики обнуляются.
+// Для нескольких серверов понадобится общее хранилище (например, Redis).
+function createLimiter({ max, windowMs, lockMs }) {
+  const entries = new Map();
+  const timer = setInterval(() => {
+    const t = Date.now();
+    for (const [key, e] of entries) {
+      if (e.lockedUntil < t && t - e.first > windowMs) entries.delete(key);
+    }
+  }, 60 * 1000);
+  timer.unref();
+
+  return {
+    // Сколько секунд ещё действует блокировка (0 — не заблокирован). Счётчик не меняет.
+    check(key) {
+      const e = entries.get(key);
+      const t = Date.now();
+      return e && e.lockedUntil > t ? Math.ceil((e.lockedUntil - t) / 1000) : 0;
+    },
+    // Засчитывает попытку. Возвращает { blocked, retryAfter, remaining }.
+    hit(key) {
+      const t = Date.now();
+      let e = entries.get(key);
+      if (e && e.lockedUntil > t) {
+        return { blocked: true, retryAfter: Math.ceil((e.lockedUntil - t) / 1000), remaining: 0 };
+      }
+      if (!e || t - e.first > windowMs) {
+        e = { count: 0, first: t, lockedUntil: 0 };
+        entries.set(key, e);
+      }
+      e.count += 1;
+      if (e.count >= max) {
+        e.lockedUntil = t + lockMs;
+        e.count = 0;
+        e.first = t;
+        return { blocked: true, retryAfter: Math.ceil(lockMs / 1000), remaining: 0 };
+      }
+      return { blocked: false, retryAfter: 0, remaining: max - e.count };
+    },
+    reset(key) { entries.delete(key); },
+  };
+}
+
+const MINUTE = 60 * 1000;
+const loginPairLimiter = createLimiter({ max: 5, windowMs: 15 * MINUTE, lockMs: 15 * MINUTE });   // email + IP
+const loginIpLimiter = createLimiter({ max: 50, windowMs: 15 * MINUTE, lockMs: 15 * MINUTE });    // перебор разных email
+const passwordLimiter = createLimiter({ max: 5, windowMs: 15 * MINUTE, lockMs: 15 * MINUTE });    // смена пароля
+const registerLimiter = createLimiter({ max: 30, windowMs: 60 * MINUTE, lockMs: 60 * MINUTE });   // регистрации с одного IP
+
+function tooMany(res, seconds) {
+  res.set("Retry-After", String(seconds));
+  const minutes = Math.max(1, Math.ceil(seconds / 60));
+  return res.status(429).json({ message: `Слишком много попыток. Повторите через ${minutes} мин.` });
+}
+
+// Для неизвестного email сравниваем пароль с фиктивным хешем, чтобы время ответа не выдавало,
+// существует ли такой пользователь.
+const DUMMY_HASH = bcrypt.hashSync("dummy-password-for-timing", 10);
+
+// ---------- Уведомления ----------
+// Ошибка уведомления никогда не должна ломать основное действие, поэтому всё в try/catch.
+async function notify(userId, { type, text, target, cargoId = null, refId = null, coalesce = false }) {
+  try {
+    if (coalesce) {
+      const updated = await pool.query(
+        `UPDATE notifications
+         SET repeat_count = repeat_count + 1, text = $4, created_at = NOW()
+         WHERE user_id = $1 AND type = $2 AND ref_id = $3 AND is_read = FALSE
+         RETURNING id`,
+        [userId, type, refId, text]
+      );
+      if (updated.rows.length > 0) return;
+    }
+    await pool.query(
+      `INSERT INTO notifications (user_id, type, text, target, cargo_id, ref_id)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [userId, type, text, target, cargoId, refId]
+    );
+  } catch (err) {
+    console.error("Ошибка создания уведомления:", err);
+  }
+}
+
+const routeOf = (cargo) => `${cargo.origin_city} → ${cargo.destination_city}`;
 
 // ---------- Создание / доращивание таблиц при старте ----------
 // vehicles — автомобили перевозчика, trips — рейсы, которые он предлагает,
@@ -156,6 +390,24 @@ async function ensureSchema() {
     `CREATE INDEX IF NOT EXISTS messages_chat_id_idx ON messages (chat_id, id)`
   );
 
+  // ---------- notifications (колокольчик в кабинете) ----------
+  await pool.query(`CREATE TABLE IF NOT EXISTS notifications (id SERIAL PRIMARY KEY);`);
+  await ensureColumn("notifications", "user_id", "INTEGER REFERENCES users(id) ON DELETE CASCADE");
+  await ensureColumn("notifications", "type", "VARCHAR(30)");
+  await ensureColumn("notifications", "text", "TEXT");
+  await ensureColumn("notifications", "target", "VARCHAR(30)");
+  await ensureColumn("notifications", "cargo_id", "INTEGER REFERENCES cargos(id) ON DELETE CASCADE");
+  await ensureColumn("notifications", "ref_id", "INTEGER");
+  await ensureColumn("notifications", "repeat_count", "INTEGER NOT NULL DEFAULT 1");
+  await ensureColumn("notifications", "is_read", "BOOLEAN NOT NULL DEFAULT FALSE");
+  await ensureColumn("notifications", "created_at", "TIMESTAMP NOT NULL DEFAULT NOW()");
+  await relaxUnknownNotNullColumns("notifications", [
+    "id", "user_id", "type", "text", "target", "cargo_id", "ref_id", "repeat_count", "is_read", "created_at",
+  ]);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS notifications_user_idx ON notifications (user_id, is_read, created_at DESC)`
+  );
+
   // Для уже принятых ранее откликов создаём чаты задним числом
   // (NOT EXISTS вместо ON CONFLICT — не зависит от наличия уникального индекса)
   await pool.query(`
@@ -174,7 +426,16 @@ async function ensureSchema() {
 // Принимает данные из формы регистрации, создаёт пользователя
 // и (в зависимости от роли) соответствующий профиль.
 app.post("/api/register", async (req, res) => {
-  const { fullName, email, phone, password, role } = req.body;
+  let valid;
+  try {
+    valid = validateRegister(req.body);
+  } catch (err) {
+    return sendValidation(res, err);
+  }
+  const { fullName, email, phone, password, role } = valid;
+
+  const registerHit = registerLimiter.hit(`reg|${req.ip}`);
+  if (registerHit.blocked) return tooMany(res, registerHit.retryAfter);
 
   // Базовая валидация
   if (!fullName || !email || !phone || !password || !role) {
@@ -191,7 +452,7 @@ app.post("/api/register", async (req, res) => {
     await client.query("BEGIN");
 
     // Проверяем, что email ещё не занят
-    const existing = await client.query("SELECT id FROM users WHERE email = $1", [email]);
+    const existing = await client.query("SELECT id FROM users WHERE LOWER(email) = $1", [email]);
     if (existing.rows.length > 0) {
       await client.query("ROLLBACK");
       return res.status(409).json({ message: "Пользователь с таким email уже существует" });
@@ -238,28 +499,38 @@ app.post("/api/register", async (req, res) => {
 // ---------- POST /api/login ----------
 // Проверяет email + пароль, выдаёт JWT-токен на 7 дней.
 app.post("/api/login", async (req, res) => {
-  const { email, password } = req.body;
+  const email = typeof req.body.email === "string" ? req.body.email.trim() : "";
+  const password = typeof req.body.password === "string" ? req.body.password : "";
 
   if (!email || !password) {
     return res.status(400).json({ message: "Заполните email и пароль" });
   }
 
+  const ip = req.ip || "unknown";
+  const pairKey = `${ip}|${email.toLowerCase()}`;
+
+  const wait = loginPairLimiter.check(pairKey) || loginIpLimiter.check(ip);
+  if (wait) return tooMany(res, wait);
+
   try {
     const result = await pool.query(
-      "SELECT id, email, password_hash, role, full_name FROM users WHERE email = $1",
+      "SELECT id, email, password_hash, role, full_name FROM users WHERE LOWER(email) = LOWER($1) ORDER BY id LIMIT 1",
       [email]
     );
 
-    if (result.rows.length === 0) {
-      return res.status(401).json({ message: "Неверный email или пароль" });
-    }
-
     const user = result.rows[0];
-    const passwordMatches = await bcrypt.compare(password, user.password_hash);
+    const passwordMatches = await bcrypt.compare(password, user ? user.password_hash : DUMMY_HASH);
 
-    if (!passwordMatches) {
-      return res.status(401).json({ message: "Неверный email или пароль" });
+    if (!user || !passwordMatches) {
+      const pairHit = loginPairLimiter.hit(pairKey);
+      const ipHit = loginIpLimiter.hit(ip);
+      if (pairHit.blocked || ipHit.blocked) return tooMany(res, pairHit.retryAfter || ipHit.retryAfter);
+      return res.status(401).json({
+        message: `Неверный email или пароль. Осталось попыток: ${pairHit.remaining}`,
+      });
     }
+
+    loginPairLimiter.reset(pairKey);
 
     // Формируем токен. В payload кладём только то, что не секретно.
     const token = jwt.sign(
@@ -279,6 +550,48 @@ app.post("/api/login", async (req, res) => {
     });
   } catch (err) {
     console.error("Ошибка входа:", err);
+    return res.status(500).json({ message: "Ошибка сервера" });
+  }
+});
+
+// ---------- PUT /api/password ----------
+// Смена пароля: нужен текущий пароль. Неверные попытки ограничены.
+app.put("/api/password", authMiddleware, async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+  const key = `pw|${req.user.userId}`;
+
+  const wait = passwordLimiter.check(key);
+  if (wait) return tooMany(res, wait);
+
+  if (typeof currentPassword !== "string" || !currentPassword) {
+    return res.status(400).json({ message: "Введите текущий пароль" });
+  }
+  try {
+    checkPassword(newPassword);
+  } catch (err) {
+    return sendValidation(res, err);
+  }
+  if (newPassword === currentPassword) {
+    return res.status(400).json({ message: "Новый пароль должен отличаться от текущего" });
+  }
+
+  try {
+    const found = await pool.query("SELECT password_hash FROM users WHERE id = $1", [req.user.userId]);
+    if (found.rows.length === 0) return res.status(404).json({ message: "Пользователь не найден" });
+
+    const matches = await bcrypt.compare(currentPassword, found.rows[0].password_hash);
+    if (!matches) {
+      const hit = passwordLimiter.hit(key);
+      if (hit.blocked) return tooMany(res, hit.retryAfter);
+      return res.status(400).json({ message: `Текущий пароль указан неверно. Осталось попыток: ${hit.remaining}` });
+    }
+
+    const newHash = await bcrypt.hash(newPassword, 10);
+    await pool.query("UPDATE users SET password_hash = $1 WHERE id = $2", [newHash, req.user.userId]);
+    passwordLimiter.reset(key);
+    return res.json({ message: "Пароль изменён" });
+  } catch (err) {
+    console.error("Ошибка смены пароля:", err);
     return res.status(500).json({ message: "Ошибка сервера" });
   }
 });
@@ -325,7 +638,13 @@ app.get("/api/me", authMiddleware, async (req, res) => {
 // Защищённый эндпоинт: обновляет данные текущего пользователя
 // и его профиль (клиента или перевозчика — в зависимости от роли).
 app.put("/api/profile", authMiddleware, async (req, res) => {
-  const { fullName, phone, companyName, taxId, address, licenseNumber } = req.body;
+  let valid;
+  try {
+    valid = validateProfile(req.body);
+  } catch (err) {
+    return sendValidation(res, err);
+  }
+  const { fullName, phone, companyName, taxId, address, licenseNumber } = valid;
 
   if (!fullName || !fullName.trim()) {
     return res.status(400).json({ message: "Имя не может быть пустым" });
@@ -455,7 +774,13 @@ app.get("/api/vehicles", authMiddleware, requireRole("carrier"), async (req, res
 
 // ---------- POST /api/vehicles ----------
 app.post("/api/vehicles", authMiddleware, requireRole("carrier"), async (req, res) => {
-  const { brand, model, plateNumber, capacityKg, bodyType } = req.body;
+  let valid;
+  try {
+    valid = validateVehicle(req.body);
+  } catch (err) {
+    return sendValidation(res, err);
+  }
+  const { brand, model, plateNumber, capacityKg, bodyType } = valid;
 
   if (!brand || !brand.trim() || !plateNumber || !plateNumber.trim()) {
     return res.status(400).json({ message: "Укажите марку и гос. номер" });
@@ -524,7 +849,13 @@ app.get("/api/trips", authMiddleware, requireRole("carrier"), async (req, res) =
 
 // ---------- POST /api/trips ----------
 app.post("/api/trips", authMiddleware, requireRole("carrier"), async (req, res) => {
-  const { originCity, destinationCity, departureDate, price, capacityKg, comment, vehicleId } = req.body;
+  let valid;
+  try {
+    valid = validateTrip(req.body);
+  } catch (err) {
+    return sendValidation(res, err);
+  }
+  const { originCity, destinationCity, departureDate, price, capacityKg, comment, vehicleId } = valid;
 
   if (!originCity || !originCity.trim() || !destinationCity || !destinationCity.trim()) {
     return res.status(400).json({ message: "Укажите города отправления и назначения" });
@@ -628,7 +959,13 @@ app.get("/api/cargos/public", authMiddleware, requireRole("carrier"), async (req
 
 // ---------- POST /api/cargos ----------
 app.post("/api/cargos", authMiddleware, requireRole("client"), async (req, res) => {
-  const { originCity, destinationCity, cargoType, weightKg, price, readyDate, comment } = req.body;
+  let valid;
+  try {
+    valid = validateCargo(req.body);
+  } catch (err) {
+    return sendValidation(res, err);
+  }
+  const { originCity, destinationCity, cargoType, weightKg, price, readyDate, comment } = valid;
 
   if (!originCity || !originCity.trim() || !destinationCity || !destinationCity.trim()) {
     return res.status(400).json({ message: "Укажите города отправления и назначения" });
@@ -678,8 +1015,13 @@ app.delete("/api/cargos/:id", authMiddleware, requireRole("client"), async (req,
 
 // ---------- POST /api/cargos/:id/respond (перевозчик) ----------
 app.post("/api/cargos/:id/respond", authMiddleware, requireRole("carrier"), async (req, res) => {
-  const price = toNumberOrNull(req.body.price);
-  const comment = req.body.comment ? String(req.body.comment).trim() : null;
+  let valid;
+  try {
+    valid = validateRespond(req.body);
+  } catch (err) {
+    return sendValidation(res, err);
+  }
+  const { price, comment } = valid;
 
   if (price === null || price <= 0) {
     return res.status(400).json({ message: "Укажите вашу цену" });
@@ -708,6 +1050,20 @@ app.post("/api/cargos/:id/respond", authMiddleware, requireRole("carrier"), asyn
        RETURNING id, cargo_id, price, comment, status, created_at`,
       [req.params.id, req.user.userId, price, comment]
     );
+    const info = await pool.query(
+      `SELECT c.client_id, c.origin_city, c.destination_city, u.full_name
+       FROM cargos c JOIN users u ON u.id = $2 WHERE c.id = $1`,
+      [req.params.id, req.user.userId]
+    );
+    if (info.rows[0]) {
+      await notify(info.rows[0].client_id, {
+        type: "response_new",
+        text: `Новый отклик на груз ${routeOf(info.rows[0])}: ${price.toLocaleString("ru-RU")} MDL от ${info.rows[0].full_name}`,
+        target: "cargo",
+        cargoId: Number(req.params.id),
+        refId: result.rows[0].id,
+      });
+    }
     return res.status(201).json({ response: result.rows[0] });
   } catch (err) {
     console.error("Ошибка отклика:", err);
@@ -781,6 +1137,10 @@ app.get("/api/cargos/:id/responses", authMiddleware, requireRole("client"), asyn
        ORDER BY (r.status = 'accepted') DESC, r.price ASC NULLS LAST, r.created_at ASC`,
       [req.params.id]
     );
+    await pool.query(
+      "UPDATE notifications SET is_read = TRUE WHERE user_id = $1 AND type = 'response_new' AND cargo_id = $2 AND is_read = FALSE",
+      [req.user.userId, req.params.id]
+    );
     return res.json({ responses: result.rows });
   } catch (err) {
     console.error("Ошибка получения откликов на груз:", err);
@@ -831,6 +1191,34 @@ app.post("/api/responses/:id/accept", authMiddleware, requireRole("client"), asy
     );
 
     await client.query("COMMIT");
+
+    // Уведомления: выбранному перевозчику и тем, кого не выбрали
+    const cargoInfo = await pool.query("SELECT origin_city, destination_city FROM cargos WHERE id = $1", [row.cargo_id]);
+    const route = routeOf(cargoInfo.rows[0]);
+    const chatInfo = await pool.query(
+      "SELECT id FROM chats WHERE cargo_id = $1 AND carrier_id = $2 ORDER BY id LIMIT 1",
+      [row.cargo_id, row.carrier_id]
+    );
+    await notify(row.carrier_id, {
+      type: "response_accepted",
+      text: `Вас выбрали по грузу ${route}. Откройте чат с клиентом.`,
+      target: chatInfo.rows[0] ? "chat" : "my-responses",
+      cargoId: row.cargo_id,
+      refId: chatInfo.rows[0] ? chatInfo.rows[0].id : null,
+    });
+    const rejected = await pool.query(
+      "SELECT carrier_id FROM responses WHERE cargo_id = $1 AND status = 'rejected'",
+      [row.cargo_id]
+    );
+    for (const other of rejected.rows) {
+      await notify(other.carrier_id, {
+        type: "response_rejected",
+        text: `По грузу ${route} выбран другой перевозчик`,
+        target: "my-responses",
+        cargoId: row.cargo_id,
+      });
+    }
+
     return res.json({ message: "Перевозчик выбран" });
   } catch (err) {
     await client.query("ROLLBACK");
@@ -866,6 +1254,27 @@ app.put("/api/cargos/:id/status", authMiddleware, requireRole("client"), async (
     }
 
     await pool.query("UPDATE cargos SET status = $1 WHERE id = $2", [status, req.params.id]);
+
+    // Если груз был в работе — сообщаем выбранному перевозчику
+    if (cargo.rows[0].status === "in_progress") {
+      const accepted = await pool.query(
+        `SELECT r.carrier_id, c.origin_city, c.destination_city
+         FROM responses r JOIN cargos c ON c.id = r.cargo_id
+         WHERE r.cargo_id = $1 AND r.status = 'accepted' LIMIT 1`,
+        [req.params.id]
+      );
+      if (accepted.rows[0]) {
+        await notify(accepted.rows[0].carrier_id, {
+          type: "cargo_status",
+          text: status === "completed"
+            ? `Груз ${routeOf(accepted.rows[0])} отмечен доставленным`
+            : `Клиент отменил заказ по грузу ${routeOf(accepted.rows[0])}`,
+          target: "my-responses",
+          cargoId: Number(req.params.id),
+        });
+      }
+    }
+
     return res.json({ message: "Статус обновлён", status });
   } catch (err) {
     console.error("Ошибка смены статуса груза:", err);
@@ -929,7 +1338,9 @@ app.get("/api/chats", authMiddleware, async (req, res) => {
               c.status AS cargo_status,
               u.full_name AS partner_name,
               lm.message_text AS last_message, lm.created_at AS last_message_at,
-              lm.sender_id AS last_sender_id, ch.created_at
+              lm.sender_id AS last_sender_id, ch.created_at,
+              (SELECT COALESCE(SUM(n.repeat_count), 0)::int FROM notifications n
+               WHERE n.user_id = $1 AND n.type = 'message' AND n.ref_id = ch.id AND n.is_read = FALSE) AS unread_count
        FROM chats ch
        JOIN cargos c ON c.id = ch.cargo_id
        JOIN users u ON u.id = CASE WHEN ch.client_id = $1 THEN ch.carrier_id ELSE ch.client_id END
@@ -958,6 +1369,12 @@ app.get("/api/chats/:id/messages", authMiddleware, async (req, res) => {
   try {
     const chat = await getChatForUser(chatId, req.user.userId);
     if (!chat) return res.status(404).json({ message: "Чат не найден" });
+
+    // Открыл переписку — уведомления о сообщениях в ней прочитаны
+    await pool.query(
+      "UPDATE notifications SET is_read = TRUE WHERE user_id = $1 AND type = 'message' AND ref_id = $2 AND is_read = FALSE",
+      [req.user.userId, chatId]
+    );
 
     const result = await pool.query(
       `SELECT id, sender_id, message_text, created_at
@@ -999,9 +1416,90 @@ app.post("/api/chats/:id/messages", authMiddleware, async (req, res) => {
        RETURNING id, sender_id, message_text, created_at`,
       [chatId, req.user.userId, text]
     );
+    const recipientId = chat.client_id === req.user.userId ? chat.carrier_id : chat.client_id;
+    const info = await pool.query(
+      `SELECT c.origin_city, c.destination_city, u.full_name
+       FROM cargos c JOIN users u ON u.id = $2 WHERE c.id = $1`,
+      [chat.cargo_id, req.user.userId]
+    );
+    if (info.rows[0]) {
+      await notify(recipientId, {
+        type: "message",
+        text: `Сообщение от ${info.rows[0].full_name} · ${routeOf(info.rows[0])}`,
+        target: "chat",
+        cargoId: chat.cargo_id,
+        refId: chatId,
+        coalesce: true,
+      });
+    }
     return res.status(201).json({ message: result.rows[0] });
   } catch (err) {
     console.error("Ошибка отправки сообщения:", err);
+    return res.status(500).json({ message: "Ошибка сервера" });
+  }
+});
+
+// ==================== УВЕДОМЛЕНИЯ ====================
+
+// ---------- GET /api/notifications/count ----------
+// Лёгкий запрос для опроса раз в несколько секунд: сколько событий не прочитано.
+app.get("/api/notifications/count", authMiddleware, async (req, res) => {
+  try {
+    const result = await pool.query(
+      "SELECT COALESCE(SUM(repeat_count), 0)::int AS unread FROM notifications WHERE user_id = $1 AND is_read = FALSE",
+      [req.user.userId]
+    );
+    return res.json({ unread: result.rows[0].unread });
+  } catch (err) {
+    console.error("Ошибка счётчика уведомлений:", err);
+    return res.status(500).json({ message: "Ошибка сервера" });
+  }
+});
+
+// ---------- GET /api/notifications ----------
+app.get("/api/notifications", authMiddleware, async (req, res) => {
+  try {
+    const list = await pool.query(
+      `SELECT id, type, text, target, cargo_id, ref_id, repeat_count, is_read, created_at
+       FROM notifications WHERE user_id = $1
+       ORDER BY created_at DESC, id DESC LIMIT 30`,
+      [req.user.userId]
+    );
+    const unread = await pool.query(
+      "SELECT COALESCE(SUM(repeat_count), 0)::int AS unread FROM notifications WHERE user_id = $1 AND is_read = FALSE",
+      [req.user.userId]
+    );
+    return res.json({ notifications: list.rows, unread: unread.rows[0].unread });
+  } catch (err) {
+    console.error("Ошибка загрузки уведомлений:", err);
+    return res.status(500).json({ message: "Ошибка сервера" });
+  }
+});
+
+// ---------- POST /api/notifications/read-all ----------
+app.post("/api/notifications/read-all", authMiddleware, async (req, res) => {
+  try {
+    await pool.query("UPDATE notifications SET is_read = TRUE WHERE user_id = $1 AND is_read = FALSE", [req.user.userId]);
+    return res.json({ message: "Все уведомления прочитаны" });
+  } catch (err) {
+    console.error("Ошибка отметки уведомлений:", err);
+    return res.status(500).json({ message: "Ошибка сервера" });
+  }
+});
+
+// ---------- POST /api/notifications/:id/read ----------
+app.post("/api/notifications/:id/read", authMiddleware, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(404).json({ message: "Уведомление не найдено" });
+  try {
+    const result = await pool.query(
+      "UPDATE notifications SET is_read = TRUE WHERE id = $1 AND user_id = $2 RETURNING id",
+      [id, req.user.userId]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ message: "Уведомление не найдено" });
+    return res.json({ message: "Прочитано" });
+  } catch (err) {
+    console.error("Ошибка отметки уведомления:", err);
     return res.status(500).json({ message: "Ошибка сервера" });
   }
 });
