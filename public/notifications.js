@@ -45,6 +45,7 @@
     if (currentUser.role === "carrier") {
       loadMyResponses();
       loadPublicCargos();
+      if (typeof loadMyReviews === "function") loadMyReviews();
     }
     if (typeof chatState !== "undefined" && !chatState.activeChat && typeof chatEls !== "undefined" && chatEls.list) {
       loadChats(true);
@@ -113,6 +114,9 @@
     } else if (item.target === "my-responses") {
       await loadMyResponses();
       scrollToSection("myResponsesSection");
+    } else if (item.target === "reviews") {
+      if (typeof loadMyReviews === "function") await loadMyReviews();
+      scrollToSection("myReviewsSection");
     } else if (item.target === "chat") {
       scrollToSection("messagesSection");
       const { ok, data } = await apiCall("GET", `${API_URL}/chats`);

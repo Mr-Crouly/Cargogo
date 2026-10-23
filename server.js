@@ -2,6 +2,7 @@ const express = require("express");
 const cors = require("cors");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
+const path = require("path");
 const pool = require("./db");
 const authMiddleware = require("./authMiddleware");
 require("dotenv").config();
@@ -14,7 +15,8 @@ if (process.env.TRUST_PROXY) app.set("trust proxy", Number(process.env.TRUST_PRO
 
 app.use(cors());
 app.use(express.json());
-app.use(express.static(__dirname));
+// Сайт (HTML, CSS, JS) лежит в папке public. Корень проекта отдавать нельзя: оттуда можно было бы скачать server.js и db.js
+app.use(express.static(path.join(__dirname, "public")));
 
 // ---------- Проверка роли ----------
 // Используется после authMiddleware, чтобы отделить действия
@@ -173,6 +175,11 @@ function validateCargo(body) {
     readyDate: optDate(body.readyDate, "Дата готовности"),
     comment: optText(body.comment, 500, "Комментарий"),
   };
+}
+function validateReview(body) {
+  const rating = Number(body.rating);
+  if (!Number.isInteger(rating) || rating < 1 || rating > 5) bad("Оценка: выберите от 1 до 5");
+  return { rating, comment: optText(body.comment, 500, "Отзыв") };
 }
 function validateRespond(body) {
   const price = optNumber(body.price, 100000000, "Цена");
@@ -389,6 +396,23 @@ async function ensureSchema() {
   await pool.query(
     `CREATE INDEX IF NOT EXISTS messages_chat_id_idx ON messages (chat_id, id)`
   );
+
+  // ---------- reviews (отзывы клиентов о перевозчиках) ----------
+  // cargo_id при удалении груза обнуляется, а не удаляется: клиент не должен иметь возможность
+  // стереть свой отзыв (и тем самым повлиять на рейтинг), удалив груз. Маршрут хранится в самом отзыве.
+  await pool.query(`CREATE TABLE IF NOT EXISTS reviews (id SERIAL PRIMARY KEY);`);
+  await ensureColumn("reviews", "cargo_id", "INTEGER REFERENCES cargos(id) ON DELETE SET NULL");
+  await ensureColumn("reviews", "client_id", "INTEGER REFERENCES users(id) ON DELETE SET NULL");
+  await ensureColumn("reviews", "carrier_id", "INTEGER REFERENCES users(id) ON DELETE CASCADE");
+  await ensureColumn("reviews", "rating", "INTEGER");
+  await ensureColumn("reviews", "comment", "TEXT");
+  await ensureColumn("reviews", "route", "TEXT");
+  await ensureColumn("reviews", "created_at", "TIMESTAMP NOT NULL DEFAULT NOW()");
+  await relaxUnknownNotNullColumns("reviews", [
+    "id", "cargo_id", "client_id", "carrier_id", "rating", "comment", "route", "created_at",
+  ]);
+  // Один отзыв на один груз
+  await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS reviews_cargo_uniq ON reviews (cargo_id)`);
 
   // ---------- notifications (колокольчик в кабинете) ----------
   await pool.query(`CREATE TABLE IF NOT EXISTS notifications (id SERIAL PRIMARY KEY);`);
@@ -743,7 +767,7 @@ app.get("/api/public/trips", async (req, res) => {
     const result = await pool.query(
       `SELECT id, origin_city, destination_city, departure_date, price, capacity_kg, created_at
        FROM trips
-       WHERE status = 'active'
+       WHERE status = 'active' AND (departure_date IS NULL OR departure_date >= CURRENT_DATE)
        ORDER BY created_at DESC
        LIMIT 24`
     );
@@ -922,7 +946,10 @@ app.get("/api/cargos", authMiddleware, requireRole("client"), async (req, res) =
     const result = await pool.query(
       `SELECT c.id, c.origin_city, c.destination_city, c.cargo_type, c.weight_kg, c.price,
               c.ready_date, c.comment, c.status, c.created_at,
-              (SELECT COUNT(*)::int FROM responses r WHERE r.cargo_id = c.id) AS responses_count
+              (SELECT COUNT(*)::int FROM responses r WHERE r.cargo_id = c.id) AS responses_count,
+              (SELECT rv.rating FROM reviews rv WHERE rv.cargo_id = c.id) AS review_rating,
+              (SELECT u.full_name FROM responses r JOIN users u ON u.id = r.carrier_id
+               WHERE r.cargo_id = c.id AND r.status = 'accepted' LIMIT 1) AS carrier_name
        FROM cargos c WHERE c.client_id = $1 ORDER BY c.created_at DESC`,
       [req.user.userId]
     );
@@ -1129,6 +1156,8 @@ app.get("/api/cargos/:id/responses", authMiddleware, requireRole("client"), asyn
               u.full_name AS carrier_name,
               cp.company_name AS carrier_company,
               cp.is_verified AS carrier_verified,
+              (SELECT ROUND(AVG(rv.rating), 1)::float8 FROM reviews rv WHERE rv.carrier_id = r.carrier_id) AS carrier_rating,
+              (SELECT COUNT(*)::int FROM reviews rv WHERE rv.carrier_id = r.carrier_id) AS carrier_reviews,
               CASE WHEN r.status = 'accepted' THEN u.phone END AS carrier_phone
        FROM responses r
        JOIN users u ON u.id = r.carrier_id
@@ -1435,6 +1464,112 @@ app.post("/api/chats/:id/messages", authMiddleware, async (req, res) => {
     return res.status(201).json({ message: result.rows[0] });
   } catch (err) {
     console.error("Ошибка отправки сообщения:", err);
+    return res.status(500).json({ message: "Ошибка сервера" });
+  }
+});
+
+// ==================== РЕЙСЫ ДЛЯ КЛИЕНТОВ И ОТЗЫВЫ ====================
+
+// ---------- GET /api/trips/public (клиент) ----------
+// Витрина рейсов перевозчиков. Контакты видят только вошедшие клиенты (на главной их нет).
+// Рейсы с уже прошедшей датой отправления не показываются.
+app.get("/api/trips/public", authMiddleware, requireRole("client"), async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT t.id, t.origin_city, t.destination_city, t.departure_date, t.price, t.capacity_kg,
+              t.comment, t.created_at,
+              u.full_name AS carrier_name, u.phone AS carrier_phone,
+              cp.company_name AS carrier_company, cp.is_verified AS carrier_verified,
+              v.brand AS vehicle_brand, v.model AS vehicle_model,
+              v.body_type AS vehicle_body_type, v.capacity_kg AS vehicle_capacity,
+              (SELECT ROUND(AVG(rv.rating), 1)::float8 FROM reviews rv WHERE rv.carrier_id = t.carrier_id) AS carrier_rating,
+              (SELECT COUNT(*)::int FROM reviews rv WHERE rv.carrier_id = t.carrier_id) AS carrier_reviews
+       FROM trips t
+       JOIN users u ON u.id = t.carrier_id
+       LEFT JOIN carrier_profiles cp ON cp.user_id = t.carrier_id
+       LEFT JOIN vehicles v ON v.id = t.vehicle_id
+       WHERE t.status = 'active' AND (t.departure_date IS NULL OR t.departure_date >= CURRENT_DATE)
+       ORDER BY t.departure_date ASC NULLS LAST, t.created_at DESC
+       LIMIT 100`
+    );
+    return res.json({ trips: result.rows });
+  } catch (err) {
+    console.error("Ошибка получения рейсов для клиента:", err);
+    return res.status(500).json({ message: "Ошибка сервера" });
+  }
+});
+
+// ---------- POST /api/cargos/:id/review (клиент) ----------
+// Отзыв о выбранном перевозчике — только по доставленному грузу и только один раз.
+app.post("/api/cargos/:id/review", authMiddleware, requireRole("client"), async (req, res) => {
+  let valid;
+  try {
+    valid = validateReview(req.body);
+  } catch (err) {
+    return sendValidation(res, err);
+  }
+
+  try {
+    const found = await pool.query(
+      `SELECT c.id, c.status, c.origin_city, c.destination_city, r.carrier_id
+       FROM cargos c
+       LEFT JOIN responses r ON r.cargo_id = c.id AND r.status = 'accepted'
+       WHERE c.id = $1 AND c.client_id = $2`,
+      [req.params.id, req.user.userId]
+    );
+    if (found.rows.length === 0) return res.status(404).json({ message: "Груз не найден" });
+
+    const cargo = found.rows[0];
+    if (cargo.status !== "completed") {
+      return res.status(409).json({ message: "Отзыв можно оставить после доставки груза" });
+    }
+    if (!cargo.carrier_id) {
+      return res.status(409).json({ message: "По этому грузу не был выбран перевозчик" });
+    }
+
+    let inserted;
+    try {
+      inserted = await pool.query(
+        `INSERT INTO reviews (cargo_id, client_id, carrier_id, rating, comment, route)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING id, rating, comment, created_at`,
+        [cargo.id, req.user.userId, cargo.carrier_id, valid.rating, valid.comment, routeOf(cargo)]
+      );
+    } catch (err) {
+      if (err.code === "23505") return res.status(409).json({ message: "Вы уже оставили отзыв по этому грузу" });
+      throw err;
+    }
+
+    await notify(cargo.carrier_id, {
+      type: "review",
+      text: `Новый отзыв по грузу ${routeOf(cargo)}: оценка ${valid.rating} из 5`,
+      target: "reviews",
+      cargoId: cargo.id,
+    });
+    return res.status(201).json({ review: inserted.rows[0] });
+  } catch (err) {
+    console.error("Ошибка сохранения отзыва:", err);
+    return res.status(500).json({ message: "Ошибка сервера" });
+  }
+});
+
+// ---------- GET /api/reviews/my (перевозчик) ----------
+app.get("/api/reviews/my", authMiddleware, requireRole("carrier"), async (req, res) => {
+  try {
+    const list = await pool.query(
+      `SELECT rv.id, rv.rating, rv.comment, rv.route, rv.created_at, u.full_name AS client_name
+       FROM reviews rv LEFT JOIN users u ON u.id = rv.client_id
+       WHERE rv.carrier_id = $1
+       ORDER BY rv.created_at DESC, rv.id DESC LIMIT 50`,
+      [req.user.userId]
+    );
+    const summary = await pool.query(
+      "SELECT ROUND(AVG(rating), 1)::float8 AS average, COUNT(*)::int AS count FROM reviews WHERE carrier_id = $1",
+      [req.user.userId]
+    );
+    return res.json({ reviews: list.rows, average: summary.rows[0].average, count: summary.rows[0].count });
+  } catch (err) {
+    console.error("Ошибка получения отзывов:", err);
     return res.status(500).json({ message: "Ошибка сервера" });
   }
 });

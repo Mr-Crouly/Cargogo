@@ -1,4 +1,4 @@
-const API_URL = "http://localhost:3000/api";
+const API_URL = "/api";
 
 const token = localStorage.getItem("token");
 
@@ -159,6 +159,10 @@ function renderProfile(user, profile) {
     if (clientCargosSection) {
       clientCargosSection.style.display = "block";
       loadCargos();
+
+      const clientTripsSection = document.getElementById("clientTripsSection");
+      if (clientTripsSection) clientTripsSection.style.display = "block";
+      if (typeof loadClientTrips === "function") loadClientTrips();
     }
   }
 
@@ -222,6 +226,10 @@ function renderProfile(user, profile) {
       if (myResponsesSection) myResponsesSection.style.display = "block";
       loadPublicCargos();
       loadMyResponses();
+
+      const myReviewsSection = document.getElementById("myReviewsSection");
+      if (myReviewsSection) myReviewsSection.style.display = "block";
+      if (typeof loadMyReviews === "function") loadMyReviews();
     }
   }
 
@@ -896,7 +904,7 @@ function renderCargoResponses(box, cargo, responses) {
 
     row.innerHTML = `
       <div class="response-main">
-        <div class="response-title">${who}${resp.carrier_verified ? ' <span class="verified-mark" title="Проверен">✓</span>' : ""} ${statusBadge("response", resp.status)}</div>
+        <div class="response-title">${who}${resp.carrier_verified ? ' <span class="verified-mark" title="Проверен">✓</span>' : ""} ${typeof ratingBadge === "function" ? ratingBadge(resp.carrier_rating, resp.carrier_reviews) : ""} ${statusBadge("response", resp.status)}</div>
         <div class="response-price">${escapeHtml(formatMoney(resp.price))}</div>
         ${resp.comment ? `<div class="entity-card-sub">${escapeHtml(resp.comment)}</div>` : ""}
         ${resp.status === "accepted" ? `<div class="contact-box">Контакты перевозчика: ${resp.carrier_phone ? `<a href="tel:${escapeHtml(resp.carrier_phone)}">${escapeHtml(resp.carrier_phone)}</a>` : "телефон не указан"}</div>` : ""}
@@ -989,6 +997,9 @@ function renderCargos(cargos) {
     card.querySelector(".entity-card-delete").addEventListener("click", () => {
       deleteEntity(`${API_URL}/cargos/${cargo.id}`, loadCargos, "Удалить этот груз вместе с откликами?");
     });
+
+    // Для доставленного груза — оценка перевозчика (reviews.js)
+    if (typeof addReviewControls === "function") addReviewControls(card, cargo, loadCargos);
 
     cargosList.appendChild(card);
 

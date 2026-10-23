@@ -540,3 +540,24 @@
 .notif-item:hover { background: #f5f5f5; }
 .notif-time { font-size: 11px; color: #888; margin-top: 3px; font-weight: 400; }
 .notif-empty { padding: 18px 14px; color: #888; font-size: 13px; }
+
+/* ---------- Рейтинг и отзывы ---------- */
+.rating { font-size: 12px; font-weight: 600; color: #b26a00; margin-left: 6px; }
+.rating-none { color: #888; font-weight: 400; }
+.stars { color: #e0a030; letter-spacing: 1px; }
+
+.review-box { border-top: 1px solid #eaeaea; padding-top: 10px; font-size: 13px; }
+.review-form { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.review-form input[type="text"] { padding: 8px 10px; border-radius: 6px; border: 1px solid #ccc; font-size: 13px; }
+.star-picker { display: flex; gap: 4px; }
+.star-btn { border: none; background: transparent; font-size: 30px; line-height: 1; color: #cfcfcf; cursor: pointer; padding: 0 2px; }
+.star-btn.on { color: #e0a030; }
+.star-btn:focus-visible { outline: 2px solid #2e7d32; border-radius: 4px; }
+
+.review-summary { font-size: 15px; font-weight: 600; margin-bottom: 12px; }
+.review-item { background: #fff; border: 1px solid #eaeaea; border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; font-size: 13px; }
+.review-item .entity-card-sub { margin-top: 3px; }
+
+/* ---------- Витрина рейсов для клиента ---------- */
+.trip-filter { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+.trip-filter select { flex: 1; min-width: 140px; padding: 8px 10px; border-radius: 6px; border: 1px solid #ccc; font-size: 14px; background: #fff; }

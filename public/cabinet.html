@@ -251,6 +251,15 @@
         <p class="empty-state" id="myResponsesEmpty">Вы пока не откликались на грузы.</p>
       </section>
 
+      <!-- ==================== ПЕРЕВОЗЧИК: мои отзывы ==================== -->
+      <section class="cabinet-section" id="myReviewsSection" style="display: none;">
+        <p class="section-title">Мои отзывы</p>
+
+        <div id="myReviewsSummary" class="review-summary"></div>
+        <div id="myReviewsList"></div>
+        <p class="empty-state" id="myReviewsEmpty">Отзывов пока нет. Они появятся после доставки грузов.</p>
+      </section>
+
       <!-- ==================== КЛИЕНТ: грузы ==================== -->
       <section class="cabinet-section" id="clientCargosSection" style="display: none;">
         <p class="section-title">Мои грузы</p>
@@ -295,6 +304,25 @@
         </form>
       </section>
 
+      <!-- ==================== КЛИЕНТ: рейсы перевозчиков ==================== -->
+      <section class="cabinet-section" id="clientTripsSection" style="display: none;">
+        <p class="section-title">Рейсы перевозчиков</p>
+        <p class="section-subtitle">Свободные рейсы с контактами перевозчиков. Если рейс подходит, свяжитесь напрямую или разместите груз по этому маршруту.</p>
+
+        <div class="trip-filter">
+          <select id="tripsFilterOrigin" data-cities>
+            <option value="">Откуда</option>
+          </select>
+          <select id="tripsFilterDestination" data-cities>
+            <option value="">Куда</option>
+          </select>
+          <button type="button" class="btn btn-outline" id="tripsFilterReset">Сбросить</button>
+        </div>
+
+        <div id="clientTripsList"></div>
+        <p class="empty-state" id="clientTripsEmpty">Подходящих рейсов пока нет.</p>
+      </section>
+
       <!-- ---------- Сообщения (клиент и перевозчик) ---------- -->
       <section class="cabinet-section" id="messagesSection" style="display: none;">
         <p class="section-title">Сообщения</p>
@@ -331,6 +359,7 @@
   <script src="cities.js"></script>
 
   <script src="chat.js"></script>
+  <script src="reviews.js"></script>
   <script src="cabinet.js"></script>
   <script src="account.js"></script>
   <script src="notifications.js"></script>
