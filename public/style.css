@@ -329,6 +329,15 @@ body {
   }
 }
 
+@media (max-width: 600px) {
+  .navbar { padding: 12px; }
+  .nav-buttons { flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+  .nav-buttons .btn { padding: 8px 12px; font-size: 13px; }
+  .account-greeting { display: none; }
+  .modal { max-width: calc(100vw - 24px); max-height: 92vh; overflow-y: auto; }
+  #registerForm input, #loginForm input { font-size: 16px; }
+}
+
 /* Модальное окно */
 .modal-overlay {
   display: none;

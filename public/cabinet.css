@@ -561,3 +561,43 @@
 /* ---------- Витрина рейсов для клиента ---------- */
 .trip-filter { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
 .trip-filter select { flex: 1; min-width: 140px; padding: 8px 10px; border-radius: 6px; border: 1px solid #ccc; font-size: 14px; background: #fff; }
+
+/* ---------- Адаптив для телефонов ---------- */
+.info-value { text-align: right; overflow-wrap: anywhere; min-width: 0; }
+.info-row { gap: 12px; }
+.entity-card-main, .response-row > div:first-child { min-width: 0; overflow-wrap: anywhere; }
+.action-btn { min-height: 36px; }
+
+@media (max-width: 600px) {
+  .cabinet { margin: 16px auto; padding: 0 12px; }
+  .cabinet-section { padding: 14px; }
+
+  /* Шапка кабинета: кнопка «Редактировать» переносится вниз на всю ширину */
+  .cabinet-header { flex-wrap: wrap; gap: 12px; }
+  .cabinet-header .edit-profile-btn { margin-left: 0; width: 100%; }
+
+  /* Карточки: заголовок и «Удалить» не должны толкать друг друга за экран */
+  .entity-card-row { flex-wrap: wrap; }
+  .entity-card-main { flex: 1 1 100%; }
+  .entity-card-delete { padding: 6px 0; font-size: 13px; }
+
+  /* Кнопки действий («Груз доставлен», «Отменить», «Отклики») — крупные, на всю ширину */
+  .entity-card-actions { flex-direction: column; align-items: stretch; }
+  .entity-card-actions .action-btn { width: 100%; min-height: 44px; font-size: 14px; }
+
+  .response-row { flex-direction: column; gap: 8px; }
+  .response-row .action-btn { width: 100%; min-height: 44px; }
+
+  .respond-form input, .respond-form .action-btn { flex: 1 1 100%; min-height: 44px; }
+
+  /* 16px в полях — иначе iOS приближает страницу при фокусе */
+  .inline-form input, .inline-form select, #editProfileForm input,
+  .respond-form input, .trip-filter select, .review-form input[type="text"],
+  .chat-form textarea { font-size: 16px; }
+  .edit-actions { flex-direction: column-reverse; }
+  .edit-actions .btn { min-height: 44px; }
+
+  .star-btn { font-size: 36px; padding: 0 4px; }
+  .notif-panel { position: fixed; left: 12px; right: 12px; top: 64px; width: auto; max-width: none; }
+  .toast { max-width: calc(100vw - 24px); text-align: center; }
+}

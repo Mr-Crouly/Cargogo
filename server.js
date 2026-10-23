@@ -310,6 +310,54 @@ async function relaxUnknownNotNullColumns(table, knownColumns) {
   }
 }
 
+// Если колонка status осталась в БД от ранней версии как ENUM, значения вроде
+// 'completed' / 'in_progress' отклоняются ошибкой 22P02 (invalid input value for enum).
+// Переводим такую колонку в VARCHAR(20) — данные сохраняются как есть.
+async function ensureStatusIsText(table, defaultValue) {
+  const res = await pool.query(
+    `SELECT data_type FROM information_schema.columns
+     WHERE table_schema = current_schema() AND table_name = $1 AND column_name = 'status'`,
+    [table]
+  );
+  if (res.rows.length === 0 || res.rows[0].data_type !== "USER-DEFINED") return;
+  await pool.query(`ALTER TABLE ${table} ALTER COLUMN status DROP DEFAULT`);
+  await pool.query(`ALTER TABLE ${table} ALTER COLUMN status TYPE VARCHAR(20) USING status::text`);
+  await pool.query(`ALTER TABLE ${table} ALTER COLUMN status SET DEFAULT '${defaultValue}'`);
+  await pool.query(`ALTER TABLE ${table} ALTER COLUMN status SET NOT NULL`);
+  console.log(`Колонка ${table}.status переведена из ENUM в VARCHAR(20)`);
+}
+
+// В старой версии БД внешние ключи могли ссылаться на client_profiles(id) / carrier_profiles(id),
+// а код хранит в *_id идентификатор пользователя (users.id). Тогда INSERT падает с ошибкой 23503.
+// Пересоздаём такие ключи так, чтобы они ссылались на users(id). NOT VALID — чтобы старые строки
+// не мешали миграции (новые записи проверяются как обычно).
+async function ensureFkToUsers(table, column) {
+  const res = await pool.query(
+    `SELECT con.conname, ref.relname AS ref_table
+     FROM pg_constraint con
+     JOIN pg_class t ON t.oid = con.conrelid
+     JOIN pg_class ref ON ref.oid = con.confrelid
+     JOIN pg_attribute a ON a.attrelid = con.conrelid AND a.attnum = ANY (con.conkey)
+     WHERE con.contype = 'f' AND t.relname = $1 AND a.attname = $2
+       AND t.relnamespace = current_schema()::regnamespace`,
+    [table, column]
+  );
+  if (res.rows.length === 0 || res.rows.every((r) => r.ref_table === "users")) return;
+  for (const row of res.rows) {
+    if (row.ref_table === "users") continue;
+    await pool.query(`ALTER TABLE ${table} DROP CONSTRAINT "${row.conname}"`);
+  }
+  const hasUsersFk = res.rows.some((r) => r.ref_table === "users");
+  if (!hasUsersFk) {
+    const onDelete = table === "reviews" && column === "client_id" ? "SET NULL" : "CASCADE";
+    await pool.query(
+      `ALTER TABLE ${table} ADD CONSTRAINT ${table}_${column}_users_fkey
+       FOREIGN KEY (${column}) REFERENCES users(id) ON DELETE ${onDelete} NOT VALID`
+    );
+  }
+  console.log(`Внешний ключ ${table}.${column} теперь ссылается на users(id)`);
+}
+
 async function ensureSchema() {
   // ---------- vehicles ----------
   await pool.query(`CREATE TABLE IF NOT EXISTS vehicles (id SERIAL PRIMARY KEY);`);
@@ -335,6 +383,7 @@ async function ensureSchema() {
   await ensureColumn("trips", "capacity_kg", "NUMERIC");
   await ensureColumn("trips", "comment", "TEXT");
   await ensureColumn("trips", "status", "VARCHAR(20) NOT NULL DEFAULT 'active'");
+  await ensureStatusIsText("trips", "active");
   await ensureColumn("trips", "created_at", "TIMESTAMP NOT NULL DEFAULT NOW()");
   await relaxUnknownNotNullColumns("trips", [
     "id", "carrier_id", "vehicle_id", "origin_city", "destination_city", "departure_date",
@@ -352,6 +401,7 @@ async function ensureSchema() {
   await ensureColumn("cargos", "ready_date", "DATE");
   await ensureColumn("cargos", "comment", "TEXT");
   await ensureColumn("cargos", "status", "VARCHAR(20) NOT NULL DEFAULT 'active'");
+  await ensureStatusIsText("cargos", "active");
   await ensureColumn("cargos", "created_at", "TIMESTAMP NOT NULL DEFAULT NOW()");
   await relaxUnknownNotNullColumns("cargos", [
     "id", "client_id", "origin_city", "destination_city", "cargo_type", "weight_kg",
@@ -365,6 +415,7 @@ async function ensureSchema() {
   await ensureColumn("responses", "price", "NUMERIC");
   await ensureColumn("responses", "comment", "TEXT");
   await ensureColumn("responses", "status", "VARCHAR(20) NOT NULL DEFAULT 'pending'");
+  await ensureStatusIsText("responses", "pending");
   await ensureColumn("responses", "created_at", "TIMESTAMP NOT NULL DEFAULT NOW()");
   await relaxUnknownNotNullColumns("responses", [
     "id", "cargo_id", "carrier_id", "price", "comment", "status", "created_at",
@@ -431,6 +482,16 @@ async function ensureSchema() {
   await pool.query(
     `CREATE INDEX IF NOT EXISTS notifications_user_idx ON notifications (user_id, is_read, created_at DESC)`
   );
+
+  // Выравниваем внешние ключи на users(id) (см. ensureFkToUsers)
+  for (const [table, column] of [
+    ["vehicles", "user_id"], ["trips", "carrier_id"], ["cargos", "client_id"],
+    ["responses", "carrier_id"], ["chats", "client_id"], ["chats", "carrier_id"],
+    ["messages", "sender_id"], ["reviews", "client_id"], ["reviews", "carrier_id"],
+    ["notifications", "user_id"],
+  ]) {
+    await ensureFkToUsers(table, column);
+  }
 
   // Для уже принятых ранее откликов создаём чаты задним числом
   // (NOT EXISTS вместо ON CONFLICT — не зависит от наличия уникального индекса)
