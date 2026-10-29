@@ -72,7 +72,15 @@ async function loadProfile() {
     currentUser = data.user;
     currentProfile = data.profile;
 
+    const createBtn = document.getElementById("sidebarCreateBtn");
+    const requestsLabel = document.getElementById("sidebarRequestsLabel");
+    const transportLink = document.getElementById("sidebarTransportLink");
+    if (createBtn) createBtn.textContent = data.user.role === "client" ? "+ Новый заказ" : "+ Новый рейс";
+    if (requestsLabel) requestsLabel.textContent = data.user.role === "client" ? "Мои заявки" : "Доступные грузы";
+    if (transportLink) transportLink.innerHTML = '<span class="sidebar-icon">▱</span>' + (data.user.role === "client" ? "Рейсы перевозчиков" : "Мой транспорт");
+
     renderProfile(data.user, data.profile);
+    setCabinetView("overview");
 
   } catch (err) {
     console.error("Ошибка загрузки профиля:", err);
@@ -89,7 +97,7 @@ async function loadProfile() {
 // ---------- Отображение профиля ----------
 function renderProfile(user, profile) {
   loadingState.style.display = "none";
-  cabinetContent.style.display = "block";
+  cabinetContent.style.display = "grid";
 
   // ---------- Аватар ----------
   const initials = user.full_name
@@ -1069,6 +1077,59 @@ if (cargoForm) {
 }
 
 
+
+// ---------- Навигация боковой панели ----------
+function setCabinetView(view) {
+  const sections = [...document.querySelectorAll(".cabinet-main .cabinet-section")];
+  sections.forEach((section) => { section.style.display = "none"; });
+
+  const show = (...ids) => ids.forEach((id) => {
+    const section = document.getElementById(id);
+    if (section) section.style.display = "block";
+  });
+
+  if (view === "overview") {
+    show("viewSection", "profileSection");
+  } else if (view === "requests") {
+    if (currentUser?.role === "client") show("clientCargosSection");
+    else show("publicCargosSection", "myResponsesSection");
+  } else if (view === "messages") {
+    show("messagesSection");
+  } else if (view === "favorites") {
+    show("favoritesSection");
+  } else if (view === "reviews") {
+    if (currentUser?.role === "carrier") show("myReviewsSection");
+    else show("clientCargosSection");
+  } else if (view === "transport") {
+    if (currentUser?.role === "carrier") show("carrierVehiclesSection", "carrierTripsSection");
+    else show("clientTripsSection");
+  } else if (view === "settings") {
+    show("viewSection", "profileSection", "passwordSection");
+  }
+
+  document.querySelectorAll(".sidebar-link").forEach((button) => {
+    button.classList.toggle("active", button.dataset.view === view);
+  });
+  const main = document.querySelector(".cabinet-main");
+  if (main) main.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+document.querySelectorAll(".sidebar-link").forEach((button) => {
+  button.addEventListener("click", () => setCabinetView(button.dataset.view));
+});
+const sidebarCreateBtn = document.getElementById("sidebarCreateBtn");
+if (sidebarCreateBtn) sidebarCreateBtn.addEventListener("click", () => {
+  if (currentUser?.role === "client") {
+    setCabinetView("requests");
+    const addCargoBtn = document.getElementById("addCargoBtn");
+    if (addCargoBtn) addCargoBtn.click();
+  } else {
+    setCabinetView("transport");
+    const addTripBtn = document.getElementById("addTripBtn");
+    if (addTripBtn) addTripBtn.click();
+  }
+});
+
 // ---------- Экранирование текста для безопасной вставки в HTML ----------
 function escapeHtml(value) {
   if (value === null || value === undefined) return "";
@@ -1095,4 +1156,23 @@ if (logoutBtn) {
 
 
 // ---------- Запуск ----------
+// ---------- Переключение светлой / тёмной темы ----------
+const themeToggleBtn = document.getElementById("themeToggleBtn");
+function applyCabinetTheme(isDark) {
+  document.body.classList.toggle("dark-theme", isDark);
+  if (themeToggleBtn) {
+    themeToggleBtn.textContent = isDark ? "Включить светлую" : "Включить тёмную";
+    themeToggleBtn.setAttribute("aria-pressed", String(isDark));
+  }
+}
+const savedTheme = localStorage.getItem("cargogo-theme");
+applyCabinetTheme(savedTheme === "dark");
+if (themeToggleBtn) {
+  themeToggleBtn.addEventListener("click", () => {
+    const isDark = !document.body.classList.contains("dark-theme");
+    localStorage.setItem("cargogo-theme", isDark ? "dark" : "light");
+    applyCabinetTheme(isDark);
+  });
+}
+
 loadProfile();

@@ -11,10 +11,6 @@
 
   <header class="navbar">
     <div class="logo">CARGOGO</div>
-    <nav class="nav-links">
-      <span>Грузы</span>
-      <span>Перевозчики</span>
-    </nav>
     <div class="nav-buttons">
       <div class="notif-wrap" id="notifWrap">
         <button type="button" class="btn btn-outline notif-btn" id="notifBtn" aria-label="Уведомления" aria-expanded="false">
@@ -38,13 +34,25 @@
     <div id="loadingState" class="loading">Загрузка профиля...</div>
 
     <div id="cabinetContent" class="cabinet-content" style="display: none;">
+      <aside class="cabinet-sidebar" id="cabinetSidebar" aria-label="Меню личного кабинета">
+        <button type="button" class="sidebar-create" id="sidebarCreateBtn">+ Новый заказ</button>
+        <nav class="sidebar-nav">
+          <button type="button" class="sidebar-link active" data-view="overview"><span class="sidebar-icon">▦</span>Обзор</button>
+          <button type="button" class="sidebar-link" data-view="requests"><span class="sidebar-icon">▤</span><span id="sidebarRequestsLabel">Мои заявки</span></button>
+          <button type="button" class="sidebar-link" data-view="messages"><span class="sidebar-icon">◯</span>Сообщения</button>
+          <button type="button" class="sidebar-link" data-view="favorites"><span class="sidebar-icon">♡</span>Избранное</button>
+          <button type="button" class="sidebar-link" data-view="reviews"><span class="sidebar-icon">☆</span>Отзывы</button>
+          <button type="button" class="sidebar-link" data-view="transport" id="sidebarTransportLink"><span class="sidebar-icon">▱</span>Мой транспорт</button>
+          <button type="button" class="sidebar-link" data-view="settings"><span class="sidebar-icon">⚙</span>Настройки</button>
+        </nav>
+      </aside>
+      <div class="cabinet-main">
       <div class="cabinet-header">
         <div class="avatar" id="avatarInitials">—</div>
         <div>
           <p class="cabinet-name" id="userName">—</p>
           <p class="cabinet-role" id="userRoleLabel">—</p>
         </div>
-        <button class="btn btn-outline edit-profile-btn" id="editProfileBtn">Редактировать профиль</button>
       </div>
 
       <section class="cabinet-section" id="viewSection">
@@ -88,7 +96,16 @@
       </section>
 
       <section class="cabinet-section" id="passwordSection">
-        <p class="section-title">Безопасность</p>
+        <p class="section-title">Профиль и настройки</p>
+        <button type="button" class="btn btn-outline" id="editProfileBtn">Редактировать профиль</button>
+        <div class="settings-row">
+          <div>
+            <p class="settings-label">Тёмная тема</p>
+            <p class="settings-description">Изменить оформление личного кабинета</p>
+          </div>
+          <button type="button" class="btn btn-outline" id="themeToggleBtn" aria-pressed="false">Включить</button>
+        </div>
+        <p class="section-title settings-security-title">Безопасность</p>
         <button type="button" class="btn btn-outline" id="changePasswordBtn">Сменить пароль</button>
 
         <form id="passwordForm" class="inline-form" style="display: none;">
@@ -323,6 +340,13 @@
         <p class="empty-state" id="clientTripsEmpty">Подходящих рейсов пока нет.</p>
       </section>
 
+      <!-- ---------- Избранное ---------- -->
+      <section class="cabinet-section" id="favoritesSection" style="display: none;">
+        <p class="section-title">Избранные перевозчики</p>
+        <p class="section-subtitle">Здесь будут отображаться перевозчики, которых вы сохранили для быстрого доступа.</p>
+        <div id="favoritesList"><p class="empty-state">Пока нет избранных перевозчиков.</p></div>
+      </section>
+
       <!-- ---------- Сообщения (клиент и перевозчик) ---------- -->
       <section class="cabinet-section" id="messagesSection" style="display: none;">
         <p class="section-title">Сообщения</p>
@@ -348,6 +372,7 @@
           </form>
         </div>
       </section>
+      </div><!-- /.cabinet-main -->
     </div>
 
     <div id="errorState" class="error-state" style="display: none;">
