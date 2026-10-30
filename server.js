@@ -169,6 +169,8 @@ function validateCargo(body) {
   return {
     originCity: reqCity(body.originCity, "Откуда"),
     destinationCity: reqCity(body.destinationCity, "Куда"),
+    originAddress: optText(body.originAddress, 200, "Адрес отправления"),
+    destinationAddress: optText(body.destinationAddress, 200, "Адрес доставки"),
     cargoType: optText(body.cargoType, 100, "Тип груза"),
     weightKg: optNumber(body.weightKg, 200000, "Вес"),
     price: optNumber(body.price, 100000000, "Бюджет"),
@@ -395,6 +397,8 @@ async function ensureSchema() {
   await ensureColumn("cargos", "client_id", "INTEGER REFERENCES users(id) ON DELETE CASCADE");
   await ensureColumn("cargos", "origin_city", "VARCHAR(100)");
   await ensureColumn("cargos", "destination_city", "VARCHAR(100)");
+  await ensureColumn("cargos", "origin_address", "VARCHAR(200)");
+  await ensureColumn("cargos", "destination_address", "VARCHAR(200)");
   await ensureColumn("cargos", "cargo_type", "VARCHAR(100)");
   await ensureColumn("cargos", "weight_kg", "NUMERIC");
   await ensureColumn("cargos", "price", "NUMERIC");
@@ -434,6 +438,8 @@ async function ensureSchema() {
   await relaxUnknownNotNullColumns("chats", [
     "id", "cargo_id", "client_id", "carrier_id", "created_at",
   ]);
+  // Чаты до отклика/назначения перевозчика могут быть без привязки к заказу.
+  await pool.query("ALTER TABLE chats ALTER COLUMN cargo_id DROP NOT NULL");
 
   // ---------- messages ----------
   await pool.query(`CREATE TABLE IF NOT EXISTS messages (id SERIAL PRIMARY KEY);`);
@@ -1005,7 +1011,7 @@ app.delete("/api/trips/:id", authMiddleware, requireRole("carrier"), async (req,
 app.get("/api/cargos", authMiddleware, requireRole("client"), async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT c.id, c.origin_city, c.destination_city, c.cargo_type, c.weight_kg, c.price,
+      `SELECT c.id, c.origin_city, c.destination_city, c.origin_address, c.destination_address, c.cargo_type, c.weight_kg, c.price,
               c.ready_date, c.comment, c.status, c.created_at,
               (SELECT COUNT(*)::int FROM responses r WHERE r.cargo_id = c.id) AS responses_count,
               (SELECT rv.rating FROM reviews rv WHERE rv.cargo_id = c.id) AS review_rating,
@@ -1027,7 +1033,7 @@ app.get("/api/cargos", authMiddleware, requireRole("client"), async (req, res) =
 app.get("/api/cargos/public", authMiddleware, requireRole("carrier"), async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT c.id, c.origin_city, c.destination_city, c.cargo_type, c.weight_kg,
+      `SELECT c.id, c.origin_city, c.destination_city, c.origin_address, c.destination_address, c.cargo_type, c.weight_kg,
               c.price, c.ready_date, c.comment, c.created_at,
               u.full_name AS client_name,
               r.status AS my_response_status, r.price AS my_response_price
@@ -1053,7 +1059,7 @@ app.post("/api/cargos", authMiddleware, requireRole("client"), async (req, res) 
   } catch (err) {
     return sendValidation(res, err);
   }
-  const { originCity, destinationCity, cargoType, weightKg, price, readyDate, comment } = valid;
+  const { originCity, destinationCity, originAddress, destinationAddress, cargoType, weightKg, price, readyDate, comment } = valid;
 
   if (!originCity || !originCity.trim() || !destinationCity || !destinationCity.trim()) {
     return res.status(400).json({ message: "Укажите города отправления и назначения" });
@@ -1061,13 +1067,15 @@ app.post("/api/cargos", authMiddleware, requireRole("client"), async (req, res) 
 
   try {
     const result = await pool.query(
-      `INSERT INTO cargos (client_id, origin_city, destination_city, cargo_type, weight_kg, price, ready_date, comment)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-       RETURNING id, origin_city, destination_city, cargo_type, weight_kg, price, ready_date, comment, status, created_at`,
+      `INSERT INTO cargos (client_id, origin_city, destination_city, origin_address, destination_address, cargo_type, weight_kg, price, ready_date, comment)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       RETURNING id, origin_city, destination_city, origin_address, destination_address, cargo_type, weight_kg, price, ready_date, comment, status, created_at`,
       [
         req.user.userId,
         originCity.trim(),
         destinationCity.trim(),
+        originAddress || null,
+        destinationAddress || null,
         cargoType ? cargoType.trim() : null,
         toNumberOrNull(weightKg),
         toNumberOrNull(price),
@@ -1411,7 +1419,7 @@ async function getChatForUser(chatId, userId) {
   const result = await pool.query(
     `SELECT ch.id, ch.cargo_id, ch.client_id, ch.carrier_id, c.status AS cargo_status
      FROM chats ch
-     JOIN cargos c ON c.id = ch.cargo_id
+     LEFT JOIN cargos c ON c.id = ch.cargo_id
      WHERE ch.id = $1 AND (ch.client_id = $2 OR ch.carrier_id = $2)`,
     [chatId, userId]
   );
@@ -1419,6 +1427,47 @@ async function getChatForUser(chatId, userId) {
 }
 
 const MAX_MESSAGE_LENGTH = 2000;
+
+// ---------- POST /api/chats/start: начать разговор до отклика или назначения ----------
+app.post("/api/chats/start", authMiddleware, requireRole("client"), async (req, res) => {
+  const carrierId = Number(req.body.carrierId);
+  if (!Number.isInteger(carrierId)) return res.status(400).json({ message: "Некорректный перевозчик" });
+  if (carrierId === Number(req.user.userId)) return res.status(400).json({ message: "Нельзя начать чат с самим собой" });
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const carrier = await client.query("SELECT id FROM users WHERE id = $1 AND LOWER(role::text) = 'carrier'", [carrierId]);
+    if (!carrier.rows.length) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ message: "Перевозчик не найден" });
+    }
+    let chat = await client.query(
+      "SELECT id FROM chats WHERE cargo_id IS NULL AND client_id = $1 AND carrier_id = $2 ORDER BY id LIMIT 1 FOR UPDATE",
+      [req.user.userId, carrierId]
+    );
+    if (!chat.rows.length) {
+      chat = await client.query(
+        "INSERT INTO chats (cargo_id, client_id, carrier_id) VALUES (NULL, $1, $2) RETURNING id",
+        [req.user.userId, carrierId]
+      );
+    }
+    await client.query("COMMIT");
+    await notify(carrierId, {
+      type: "message",
+      text: "Клиент начал с вами переписку до оформления заказа.",
+      target: "chat",
+      refId: chat.rows[0].id,
+      coalesce: true,
+    });
+    return res.status(201).json({ chatId: chat.rows[0].id, message: "Переписка открыта" });
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error("Ошибка создания чата до заказа:", err);
+    return res.status(500).json({ message: "Не удалось начать переписку" });
+  } finally {
+    client.release();
+  }
+});
 
 // ---------- GET /api/chats ----------
 app.get("/api/chats", authMiddleware, async (req, res) => {
@@ -1432,7 +1481,7 @@ app.get("/api/chats", authMiddleware, async (req, res) => {
               (SELECT COALESCE(SUM(n.repeat_count), 0)::int FROM notifications n
                WHERE n.user_id = $1 AND n.type = 'message' AND n.ref_id = ch.id AND n.is_read = FALSE) AS unread_count
        FROM chats ch
-       JOIN cargos c ON c.id = ch.cargo_id
+       LEFT JOIN cargos c ON c.id = ch.cargo_id
        JOIN users u ON u.id = CASE WHEN ch.client_id = $1 THEN ch.carrier_id ELSE ch.client_id END
        LEFT JOIN LATERAL (
          SELECT message_text, created_at, sender_id FROM messages
@@ -1473,7 +1522,7 @@ app.get("/api/chats/:id/messages", authMiddleware, async (req, res) => {
     );
     return res.json({
       messages: result.rows,
-      canSend: chat.cargo_status === "in_progress",
+      canSend: !chat.cargo_id || ["active", "in_progress"].includes(chat.cargo_status),
     });
   } catch (err) {
     console.error("Ошибка загрузки сообщений:", err);
@@ -1496,8 +1545,8 @@ app.post("/api/chats/:id/messages", authMiddleware, async (req, res) => {
     const chat = await getChatForUser(chatId, req.user.userId);
     if (!chat) return res.status(404).json({ message: "Чат не найден" });
 
-    if (chat.cargo_status !== "in_progress") {
-      return res.status(409).json({ message: "Груз уже не в работе — переписка доступна только для чтения" });
+    if (chat.cargo_id && !["active", "in_progress"].includes(chat.cargo_status)) {
+      return res.status(409).json({ message: "Заказ закрыт — переписка доступна только для чтения" });
     }
 
     const result = await pool.query(
@@ -1509,13 +1558,13 @@ app.post("/api/chats/:id/messages", authMiddleware, async (req, res) => {
     const recipientId = chat.client_id === req.user.userId ? chat.carrier_id : chat.client_id;
     const info = await pool.query(
       `SELECT c.origin_city, c.destination_city, u.full_name
-       FROM cargos c JOIN users u ON u.id = $2 WHERE c.id = $1`,
+       FROM users u LEFT JOIN cargos c ON c.id = $1 WHERE u.id = $2`,
       [chat.cargo_id, req.user.userId]
     );
     if (info.rows[0]) {
       await notify(recipientId, {
         type: "message",
-        text: `Сообщение от ${info.rows[0].full_name} · ${routeOf(info.rows[0])}`,
+        text: `Сообщение от ${info.rows[0].full_name}${info.rows[0].origin_city ? ` · ${routeOf(info.rows[0])}` : " · обсуждение до заказа"}`,
         target: "chat",
         cargoId: chat.cargo_id,
         refId: chatId,
@@ -1529,6 +1578,132 @@ app.post("/api/chats/:id/messages", authMiddleware, async (req, res) => {
   }
 });
 
+// ---------- GET /api/carriers (каталог перевозчиков для клиента) ----------
+app.get("/api/carriers", authMiddleware, requireRole("client"), async (req, res) => {
+  try {
+    // Сначала получаем список из users. Так каталог не зависит от того,
+    // полностью ли заполнены дополнительные таблицы профиля/рейтингов.
+    const usersResult = await pool.query(
+      `SELECT u.id, u.full_name, u.phone
+       FROM users u
+       WHERE LOWER(u.role::text) = 'carrier'
+       ORDER BY u.full_name ASC
+       LIMIT 100`
+    );
+
+    const carriers = await Promise.all(usersResult.rows.map(async (user) => {
+      const carrier = {
+        ...user,
+        company_name: null,
+        license_number: null,
+        is_verified: false,
+        rating: null,
+        reviews_count: 0,
+        vehicles_count: 0,
+        active_trips: 0,
+      };
+
+      // Дополнительные сведения загружаются отдельно: ошибка в одной
+      // старой/неполной таблице не должна скрывать всех перевозчиков.
+      try {
+        const profile = await pool.query(
+          `SELECT company_name, license_number, is_verified
+           FROM carrier_profiles WHERE user_id = $1 LIMIT 1`,
+          [user.id]
+        );
+        if (profile.rows[0]) Object.assign(carrier, profile.rows[0]);
+      } catch (profileErr) {
+        console.warn("Не удалось загрузить профиль перевозчика", user.id, profileErr.message);
+      }
+      try {
+        const stats = await pool.query(
+          `SELECT
+             (SELECT ROUND(AVG(rating), 1)::float8 FROM reviews WHERE carrier_id = $1) AS rating,
+             (SELECT COUNT(*)::int FROM reviews WHERE carrier_id = $1) AS reviews_count,
+             (SELECT COUNT(*)::int FROM vehicles WHERE user_id = $1) AS vehicles_count,
+             (SELECT COUNT(*)::int FROM trips WHERE carrier_id = $1 AND status = 'active') AS active_trips`,
+          [user.id]
+        );
+        Object.assign(carrier, stats.rows[0] || {});
+      } catch (statsErr) {
+        console.warn("Не удалось загрузить статистику перевозчика", user.id, statsErr.message);
+      }
+      return carrier;
+    }));
+
+    res.json({ carriers });
+  } catch (err) {
+    console.error("Ошибка загрузки каталога перевозчиков:", err);
+    res.status(500).json({ message: "Не удалось загрузить перевозчиков. Проверьте подключение к базе данных." });
+  }
+});
+
+// ---------- POST /api/cargos/:id/assign (клиент назначает перевозчика напрямую) ----------
+app.post("/api/cargos/:id/assign", authMiddleware, requireRole("client"), async (req, res) => {
+  const cargoId = Number(req.params.id);
+  const carrierId = Number(req.body.carrierId);
+  if (!Number.isInteger(cargoId) || !Number.isInteger(carrierId)) {
+    return res.status(400).json({ message: "Некорректный заказ или перевозчик" });
+  }
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const cargoResult = await client.query(
+      "SELECT id, status, client_id, price, origin_city, destination_city FROM cargos WHERE id = $1 FOR UPDATE",
+      [cargoId]
+    );
+    if (!cargoResult.rows.length || Number(cargoResult.rows[0].client_id) !== Number(req.user.userId)) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ message: "Заказ не найден" });
+    }
+    const cargo = cargoResult.rows[0];
+    if (cargo.status !== "active") {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ message: "Этот заказ уже недоступен для выбора исполнителя" });
+    }
+    const carrier = await client.query("SELECT id FROM users WHERE id = $1 AND role = 'carrier'", [carrierId]);
+    if (!carrier.rows.length) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ message: "Перевозчик не найден" });
+    }
+    await client.query(
+      `INSERT INTO responses (cargo_id, carrier_id, price, comment, status)
+       VALUES ($1, $2, $3, 'Назначен клиентом напрямую', 'accepted')
+       ON CONFLICT (cargo_id, carrier_id) DO UPDATE SET status = 'accepted', price = EXCLUDED.price,
+         comment = COALESCE(responses.comment, EXCLUDED.comment)`,
+      [cargoId, carrierId, cargo.price]
+    );
+    await client.query(
+      "UPDATE responses SET status = 'rejected' WHERE cargo_id = $1 AND carrier_id <> $2 AND status = 'pending'",
+      [cargoId, carrierId]
+    );
+    await client.query("UPDATE cargos SET status = 'in_progress' WHERE id = $1", [cargoId]);
+    await client.query(
+      `INSERT INTO chats (cargo_id, client_id, carrier_id)
+       SELECT $1, $2, $3 WHERE NOT EXISTS
+       (SELECT 1 FROM chats WHERE cargo_id = $1 AND client_id = $2 AND carrier_id = $3)`,
+      [cargoId, req.user.userId, carrierId]
+    );
+    await client.query("COMMIT");
+    const chat = await pool.query(
+      "SELECT id FROM chats WHERE cargo_id = $1 AND client_id = $2 AND carrier_id = $3 ORDER BY id LIMIT 1",
+      [cargoId, req.user.userId, carrierId]
+    );
+    await notify(carrierId, {
+      type: "response_accepted",
+      text: `Клиент выбрал вас исполнителем заказа ${routeOf(cargo)}. Можно обсудить детали в чате.`,
+      target: "chat", cargoId, refId: chat.rows[0]?.id || null,
+    });
+    res.json({ message: "Перевозчик назначен исполнителем", chatId: chat.rows[0]?.id || null });
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error("Ошибка прямого назначения перевозчика:", err);
+    res.status(500).json({ message: "Не удалось назначить перевозчика" });
+  } finally {
+    client.release();
+  }
+});
+
 // ==================== РЕЙСЫ ДЛЯ КЛИЕНТОВ И ОТЗЫВЫ ====================
 
 // ---------- GET /api/trips/public (клиент) ----------
@@ -1537,7 +1712,7 @@ app.post("/api/chats/:id/messages", authMiddleware, async (req, res) => {
 app.get("/api/trips/public", authMiddleware, requireRole("client"), async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT t.id, t.origin_city, t.destination_city, t.departure_date, t.price, t.capacity_kg,
+      `SELECT t.id, t.carrier_id, t.origin_city, t.destination_city, t.departure_date, t.price, t.capacity_kg,
               t.comment, t.created_at,
               u.full_name AS carrier_name, u.phone AS carrier_phone,
               cp.company_name AS carrier_company, cp.is_verified AS carrier_verified,

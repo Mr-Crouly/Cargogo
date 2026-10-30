@@ -72,7 +72,25 @@ async function loadProfile() {
     currentUser = data.user;
     currentProfile = data.profile;
 
+    const createBtn = document.getElementById("sidebarCreateBtn");
+    const requestsLabel = document.getElementById("sidebarRequestsLabel");
+    const transportLink = document.getElementById("sidebarTransportLink");
+    const carriersLink = document.getElementById("sidebarCarriersLink");
+    if (carriersLink) carriersLink.style.display = data.user.role === "client" ? "flex" : "none";
+    const mobileCatalogLink = document.getElementById("mobileCatalogLink");
+    const mobileRequestsLabel = document.getElementById("mobileRequestsLabel");
+    if (mobileCatalogLink) {
+      mobileCatalogLink.style.display = "flex";
+      mobileCatalogLink.dataset.view = data.user.role === "client" ? "carriers" : "transport";
+      mobileCatalogLink.querySelector("span:last-child").textContent = data.user.role === "client" ? "Перевозчики" : "Транспорт";
+    }
+    if (mobileRequestsLabel) mobileRequestsLabel.textContent = data.user.role === "client" ? "Заявки" : "Грузы";
+    if (createBtn) createBtn.textContent = data.user.role === "client" ? "+ Новый заказ" : "+ Новый рейс";
+    if (requestsLabel) requestsLabel.textContent = data.user.role === "client" ? "Мои заявки" : "Доступные грузы";
+    if (transportLink) transportLink.innerHTML = '<span class="sidebar-icon">▱</span>' + (data.user.role === "client" ? "Рейсы перевозчиков" : "Мой транспорт");
+
     renderProfile(data.user, data.profile);
+    setCabinetView("overview");
 
   } catch (err) {
     console.error("Ошибка загрузки профиля:", err);
@@ -89,7 +107,7 @@ async function loadProfile() {
 // ---------- Отображение профиля ----------
 function renderProfile(user, profile) {
   loadingState.style.display = "none";
-  cabinetContent.style.display = "block";
+  cabinetContent.style.display = "grid";
 
   // ---------- Аватар ----------
   const initials = user.full_name
@@ -749,6 +767,8 @@ function renderPublicCargos(cargos) {
       <div class="entity-card-main">
         <div class="entity-card-title">${escapeHtml(cargo.origin_city)} → ${escapeHtml(cargo.destination_city)}</div>
         ${subParts.length ? `<div class="entity-card-sub">${escapeHtml(subParts.join(" · "))}</div>` : ""}
+        ${cargo.origin_address ? `<div class="entity-card-sub">Загрузка: ${escapeHtml(cargo.origin_address)}</div>` : ""}
+        ${cargo.destination_address ? `<div class="entity-card-sub">Доставка: ${escapeHtml(cargo.destination_address)}</div>` : ""}
         ${cargo.price ? `<div class="entity-card-sub">Бюджет клиента: ${escapeHtml(formatMoney(cargo.price))}</div>` : ""}
         ${cargo.comment ? `<div class="entity-card-sub">${escapeHtml(cargo.comment)}</div>` : ""}
         <div class="entity-card-sub">Заказчик: ${escapeHtml(cargo.client_name || "Клиент")}</div>
@@ -950,6 +970,8 @@ function renderCargos(cargos) {
         <div class="entity-card-main">
           <div class="entity-card-title">${escapeHtml(cargo.origin_city)} → ${escapeHtml(cargo.destination_city)} ${statusBadge("cargo", cargo.status)}</div>
           ${subParts.length ? `<div class="entity-card-sub">${escapeHtml(subParts.join(" · "))}</div>` : ""}
+          ${cargo.origin_address ? `<div class="entity-card-sub">Адрес загрузки: ${escapeHtml(cargo.origin_address)}</div>` : ""}
+          ${cargo.destination_address ? `<div class="entity-card-sub">Адрес доставки: ${escapeHtml(cargo.destination_address)}</div>` : ""}
           ${cargo.price ? `<div class="entity-card-sub">${escapeHtml(formatMoney(cargo.price))}</div>` : ""}
           ${cargo.comment ? `<div class="entity-card-sub">${escapeHtml(cargo.comment)}</div>` : ""}
         </div>
@@ -1026,6 +1048,8 @@ if (cargoForm) {
     const payload = {
       originCity: document.getElementById("cargoOrigin").value,
       destinationCity: document.getElementById("cargoDestination").value,
+      originAddress: document.getElementById("cargoOriginAddress").value.trim(),
+      destinationAddress: document.getElementById("cargoDestinationAddress").value.trim(),
       cargoType: document.getElementById("cargoType").value.trim(),
       weightKg: document.getElementById("cargoWeight").value,
       readyDate: document.getElementById("cargoReadyDate").value,
@@ -1033,8 +1057,8 @@ if (cargoForm) {
       comment: document.getElementById("cargoComment").value.trim(),
     };
 
-    if (!payload.originCity || !payload.destinationCity) {
-      cargoErrorMessage.textContent = "Укажите города отправления и назначения";
+    if (!payload.originCity || !payload.destinationCity || !payload.originAddress || !payload.destinationAddress) {
+      cargoErrorMessage.textContent = "Укажите города и точные адреса отправления и доставки";
       return;
     }
 
@@ -1069,6 +1093,142 @@ if (cargoForm) {
 }
 
 
+
+// ---------- Каталог перевозчиков и прямое назначение исполнителя ----------
+async function loadCarriers() {
+  const list = document.getElementById("carriersList");
+  if (!list) return;
+  list.innerHTML = '<p class="empty-hint">Загрузка перевозчиков...</p>';
+  try {
+    const { ok, data } = await apiCall("GET", `${API_URL}/carriers`);
+    if (!ok) throw new Error(data.message || "Не удалось загрузить перевозчиков");
+    const cargoResult = await apiCall("GET", `${API_URL}/cargos`);
+    const activeCargos = cargoResult.ok ? (cargoResult.data.cargos || []).filter(c => c.status === "active") : [];
+    if (!data.carriers?.length) {
+      list.innerHTML = '<p class="empty-state">Пока нет зарегистрированных перевозчиков.</p>';
+      return;
+    }
+    list.innerHTML = "";
+    data.carriers.forEach(carrier => {
+      const card = document.createElement("article");
+      card.className = "entity-card entity-card-col carrier-directory-card";
+      const name = escapeHtml(carrier.full_name || "Перевозчик");
+      const company = carrier.company_name ? escapeHtml(carrier.company_name) : "Частный перевозчик";
+      const rating = carrier.rating ? `★ ${escapeHtml(carrier.rating)} (${Number(carrier.reviews_count || 0)} отзывов)` : "Пока нет отзывов";
+      const options = activeCargos.map(c => `<option value="${Number(c.id)}">${escapeHtml(c.origin_city)} → ${escapeHtml(c.destination_city)}</option>`).join("");
+      card.innerHTML = `
+        <div class="entity-card-row"><div class="entity-card-main">
+          <div class="entity-card-title">${name} ${carrier.is_verified ? '<span class="verified-mark" title="Проверенный перевозчик">✓</span>' : ''}</div>
+          <div class="entity-card-sub">${company}</div>
+          <div class="entity-card-sub">${rating}</div>
+          <div class="entity-card-sub">Транспорта: ${Number(carrier.vehicles_count || 0)} · Активных рейсов: ${Number(carrier.active_trips || 0)}</div>
+          ${carrier.license_number ? `<div class="entity-card-sub">Лицензия: ${escapeHtml(carrier.license_number)}</div>` : ""}
+        </div></div>
+        <div class="entity-card-actions carrier-card-actions">
+          <div class="carrier-primary-actions">
+            <button type="button" class="action-btn carrier-profile-toggle">Подробнее</button>
+            <button type="button" class="action-btn action-btn-chat carrier-message-btn">Написать перевозчику</button>
+          </div>
+          ${activeCargos.length ? `<select class="carrier-cargo-select" aria-label="Выберите свой заказ"><option value="">Выберите заказ для назначения</option>${options}</select><button type="button" class="action-btn action-btn-primary carrier-assign-btn">Выбрать исполнителем</button>` : '<span class="entity-card-sub">Чтобы назначить исполнителя, сначала создайте активный заказ.</span>'}
+        </div>
+        <div class="carrier-profile-details" hidden>
+          <div class="info-row"><span class="info-label">Имя</span><span class="info-value">${name}</span></div>
+          <div class="info-row"><span class="info-label">Компания</span><span class="info-value">${company}</span></div>
+          <div class="info-row"><span class="info-label">Телефон</span><span class="info-value">После назначения исполнителем</span></div>
+          <div class="info-row"><span class="info-label">Проверка</span><span class="info-value">${carrier.is_verified ? "Проверен" : "Не подтверждён"}</span></div>
+          <div class="info-row"><span class="info-label">Отзывы</span><span class="info-value">${rating}</span></div>
+        </div>`;
+      card.querySelector(".carrier-profile-toggle").addEventListener("click", e => {
+        const details = card.querySelector(".carrier-profile-details");
+        details.hidden = !details.hidden;
+        e.currentTarget.textContent = details.hidden ? "Подробнее" : "Скрыть";
+      });
+      const messageBtn = card.querySelector(".carrier-message-btn");
+      if (messageBtn) messageBtn.addEventListener("click", async () => {
+        if (typeof window.openDirectChatWithCarrier !== "function") {
+          showToast("Модуль сообщений не загрузился. Обновите страницу.", true); return;
+        }
+        messageBtn.disabled = true; const oldText = messageBtn.textContent; messageBtn.textContent = "Открываем чат...";
+        try { await window.openDirectChatWithCarrier(carrier.id); }
+        catch (err) { console.error("Не удалось открыть предварительный чат:", err); showToast(err.message || "Не удалось открыть чат", true); }
+        finally { messageBtn.disabled = false; messageBtn.textContent = oldText; }
+      });
+      const assignBtn = card.querySelector(".carrier-assign-btn");
+      if (assignBtn) assignBtn.addEventListener("click", async () => {
+        const cargoId = card.querySelector(".carrier-cargo-select").value;
+        if (!cargoId) { showToast("Сначала выберите заказ", true); return; }
+        if (!window.confirm(`Назначить ${carrier.full_name} исполнителем выбранного заказа? После назначения заказ станет недоступен другим перевозчикам.`)) return;
+        assignBtn.disabled = true;
+        const { ok, data: result } = await apiCall("POST", `${API_URL}/cargos/${cargoId}/assign`, { carrierId: carrier.id });
+        assignBtn.disabled = false;
+        if (!ok) { showToast(result.message || "Не удалось назначить перевозчика", true); return; }
+        showToast("Перевозчик назначен. Чат доступен во вкладке «Сообщения».");
+        loadCarriers();
+        loadCargos();
+      });
+      list.appendChild(card);
+    });
+  } catch (err) {
+    console.error("Ошибка каталога перевозчиков:", err);
+    list.innerHTML = '<p class="empty-state">Не удалось загрузить перевозчиков. Попробуйте обновить раздел.</p>';
+  }
+}
+
+// ---------- Навигация боковой панели ----------
+function setCabinetView(view) {
+  const sections = [...document.querySelectorAll(".cabinet-main .cabinet-section")];
+  sections.forEach((section) => { section.style.display = "none"; });
+
+  const show = (...ids) => ids.forEach((id) => {
+    const section = document.getElementById(id);
+    if (section) section.style.display = "block";
+  });
+
+  if (view === "overview") {
+    show("viewSection", "profileSection");
+  } else if (view === "requests") {
+    if (currentUser?.role === "client") show("clientCargosSection");
+    else show("publicCargosSection", "myResponsesSection");
+  } else if (view === "messages") {
+    show("messagesSection");
+  } else if (view === "carriers") {
+    show("carriersSection");
+    loadCarriers();
+  } else if (view === "favorites") {
+    show("favoritesSection");
+  } else if (view === "reviews") {
+    if (currentUser?.role === "carrier") show("myReviewsSection");
+    else show("clientCargosSection");
+  } else if (view === "transport") {
+    if (currentUser?.role === "carrier") show("carrierVehiclesSection", "carrierTripsSection");
+    else show("clientTripsSection");
+  } else if (view === "settings") {
+    show("viewSection", "profileSection", "passwordSection");
+  }
+
+  document.querySelectorAll(".sidebar-link, .mobile-nav-link").forEach((button) => {
+    button.classList.toggle("active", button.dataset.view === view);
+  });
+  const main = document.querySelector(".cabinet-main");
+  if (main) main.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+document.querySelectorAll(".sidebar-link, .mobile-nav-link").forEach((button) => {
+  button.addEventListener("click", () => setCabinetView(button.dataset.view));
+});
+const sidebarCreateBtn = document.getElementById("sidebarCreateBtn");
+if (sidebarCreateBtn) sidebarCreateBtn.addEventListener("click", () => {
+  if (currentUser?.role === "client") {
+    setCabinetView("requests");
+    const addCargoBtn = document.getElementById("addCargoBtn");
+    if (addCargoBtn) addCargoBtn.click();
+  } else {
+    setCabinetView("transport");
+    const addTripBtn = document.getElementById("addTripBtn");
+    if (addTripBtn) addTripBtn.click();
+  }
+});
+
 // ---------- Экранирование текста для безопасной вставки в HTML ----------
 function escapeHtml(value) {
   if (value === null || value === undefined) return "";
@@ -1095,4 +1255,23 @@ if (logoutBtn) {
 
 
 // ---------- Запуск ----------
+// ---------- Переключение светлой / тёмной темы ----------
+const themeToggleBtn = document.getElementById("themeToggleBtn");
+function applyCabinetTheme(isDark) {
+  document.body.classList.toggle("dark-theme", isDark);
+  if (themeToggleBtn) {
+    themeToggleBtn.textContent = isDark ? "Включить светлую" : "Включить тёмную";
+    themeToggleBtn.setAttribute("aria-pressed", String(isDark));
+  }
+}
+const savedTheme = localStorage.getItem("cargogo-theme");
+applyCabinetTheme(savedTheme === "dark");
+if (themeToggleBtn) {
+  themeToggleBtn.addEventListener("click", () => {
+    const isDark = !document.body.classList.contains("dark-theme");
+    localStorage.setItem("cargogo-theme", isDark ? "dark" : "light");
+    applyCabinetTheme(isDark);
+  });
+}
+
 loadProfile();

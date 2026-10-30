@@ -12,6 +12,8 @@ const chatState = {
   pollTimer: null,
   listTimer: null,
   loading: false,
+  chats: [],
+  searchText: "",
 };
 
 const chatEls = {};
@@ -41,12 +43,24 @@ async function loadChats(silent = false) {
     if (!silent) chatEls.list.innerHTML = `<p class="empty-hint">Не удалось загрузить сообщения</p>`;
     return;
   }
-  renderChatList(data.chats);
+  chatState.chats = Array.isArray(data.chats) ? data.chats : [];
+  renderChatList();
 }
 
-function renderChatList(chats) {
+function renderChatList() {
+  const query = chatState.searchText.trim().toLocaleLowerCase("ru");
+  const chats = chatState.chats.filter((chat) => {
+    const haystack = [chat.partner_name, chat.origin_city, chat.destination_city, chat.cargo_type, chat.last_message]
+      .filter(Boolean).join(" ").toLocaleLowerCase("ru");
+    return !query || haystack.includes(query);
+  });
+
+  if (chatState.chats.length === 0) {
+    chatEls.list.innerHTML = `<p class="empty-hint">Здесь появятся ваши переписки с перевозчиками и клиентами.</p>`;
+    return;
+  }
   if (chats.length === 0) {
-    chatEls.list.innerHTML = `<p class="empty-hint">Здесь появятся переписки, когда клиент выберет перевозчика по грузу.</p>`;
+    chatEls.list.innerHTML = `<p class="empty-hint">По вашему запросу ничего не найдено.</p>`;
     return;
   }
 
@@ -67,7 +81,8 @@ function renderChatList(chats) {
         <span class="chat-list-name">${escapeHtml(chat.partner_name)}${chat.unread_count > 0 ? ` <span class="notif-badge">${chat.unread_count}</span>` : ""}</span>
         <span class="chat-list-time">${chat.last_message_at ? escapeHtml(chatTime(chat.last_message_at)) : ""}</span>
       </div>
-      <div class="chat-list-route">${escapeHtml(chat.origin_city)} → ${escapeHtml(chat.destination_city)}${chat.cargo_type ? " · " + escapeHtml(chat.cargo_type) : ""}</div>
+      <div class="chat-list-route">${chat.origin_city && chat.destination_city ? `${escapeHtml(chat.origin_city)} → ${escapeHtml(chat.destination_city)}${chat.cargo_type ? " · " + escapeHtml(chat.cargo_type) : ""}` : "Обсуждение до оформления заказа"}</div>
+      <div class="chat-list-meta"><span class="chat-status ${!chat.cargo_id || ["active", "in_progress"].includes(chat.cargo_status) ? "chat-status-active" : "chat-status-closed"}">${!chat.cargo_id ? "До заказа" : chat.cargo_status === "in_progress" ? "В работе" : chat.cargo_status === "active" ? "Открытый заказ" : "Завершён / закрыт"}</span></div>
       <div class="chat-list-preview">${escapeHtml(preview)}</div>
     `;
     card.addEventListener("click", () => openChat(chat));
@@ -84,8 +99,9 @@ async function openChat(chat) {
   chatEls.listView.style.display = "none";
   chatEls.convView.style.display = "flex";
   chatEls.convTitle.textContent = chat.partner_name;
-  chatEls.convRoute.textContent =
-    `${chat.origin_city} → ${chat.destination_city}${chat.cargo_type ? " · " + chat.cargo_type : ""}`;
+  chatEls.convRoute.textContent = chat.origin_city && chat.destination_city
+    ? `${chat.origin_city} → ${chat.destination_city}${chat.cargo_type ? " · " + chat.cargo_type : ""}`
+    : "Личная переписка · до оформления заказа";
   chatEls.messages.innerHTML = "";
   chatEls.messages.dataset.lastDay = "";
   chatEls.input.value = "";
@@ -199,6 +215,18 @@ async function sendChatMessage(event) {
   chatEls.input.focus();
 }
 
+// Открыть или создать личный чат с перевозчиком до отклика/назначения.
+window.openDirectChatWithCarrier = async function (carrierId) {
+  const { ok, data } = await apiCall("POST", `${API_URL}/chats/start`, { carrierId });
+  if (!ok) throw new Error(data.message || "Не удалось начать переписку");
+  if (typeof setCabinetView === "function") setCabinetView("messages");
+  await loadChats();
+  const chat = chatState.chats.find((item) => Number(item.id) === Number(data.chatId));
+  if (!chat) throw new Error("Чат создан, но не удалось загрузить его список. Откройте «Сообщения».");
+  await openChat(chat);
+  showToast("Чат с перевозчиком открыт");
+};
+
 // ---------- Инициализация ----------
 function initMessages() {
   const section = document.getElementById("messagesSection");
@@ -216,11 +244,16 @@ function initMessages() {
     send: document.getElementById("chatSendBtn"),
     readonly: document.getElementById("chatReadonly"),
     back: document.getElementById("chatBackBtn"),
+    search: document.getElementById("chatSearch"),
   });
 
   section.style.display = "block";
   chatEls.back.addEventListener("click", closeChat);
   chatEls.form.addEventListener("submit", sendChatMessage);
+  chatEls.search.addEventListener("input", () => {
+    chatState.searchText = chatEls.search.value || "";
+    renderChatList();
+  });
 
   // Enter — отправить, Shift+Enter — перенос строки
   chatEls.input.addEventListener("keydown", (e) => {

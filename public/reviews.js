@@ -108,14 +108,25 @@
           ${car ? `<div class="entity-card-sub">Автомобиль: ${escapeHtml(car)}</div>` : ""}
           ${trip.comment ? `<div class="entity-card-sub">${escapeHtml(trip.comment)}</div>` : ""}
           <div class="entity-card-sub">Перевозчик: ${escapeHtml(who)}${trip.carrier_verified ? ' <span class="verified-mark" title="Проверен">✓</span>' : ""}${window.ratingBadge(trip.carrier_rating, trip.carrier_reviews)}</div>
-          <div class="contact-box">Контакты: ${phone}</div>
+          <div class="entity-card-actions trip-card-actions"></div>
+          <div class="contact-box"><span>Контакты:</span> ${phone}</div>
         </div>
-        <div class="entity-card-actions"></div>
       `;
 
-      card.querySelector(".entity-card-actions").appendChild(
-        makeActionButton("Разместить груз по этому маршруту", () => prefillCargoForm(trip))
-      );
+      const actions = card.querySelector(".entity-card-actions");
+      actions.appendChild(makeActionButton("Написать перевозчику", async () => {
+        const button = [...actions.querySelectorAll("button")].find((b) => b.textContent === "Написать перевозчику");
+        if (button) { button.disabled = true; button.textContent = "Открываем чат…"; }
+        try {
+          if (typeof window.openDirectChatWithCarrier !== "function") throw new Error("Чат ещё не загружен");
+          await window.openDirectChatWithCarrier(trip.carrier_id);
+        } catch (err) {
+          showToast(err.message || "Не удалось открыть чат", true);
+        } finally {
+          if (button) { button.disabled = false; button.textContent = "Написать перевозчику"; }
+        }
+      }, "action-btn-primary"));
+      actions.appendChild(makeActionButton("Разместить груз по этому маршруту", () => prefillCargoForm(trip)));
       list.appendChild(card);
     });
   }
