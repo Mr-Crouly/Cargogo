@@ -582,9 +582,19 @@
 .star-btn.on { color: #e0a030; }
 .star-btn:focus-visible { outline: 2px solid #2e7d32; border-radius: 4px; }
 
-.review-summary { font-size: 15px; font-weight: 600; margin-bottom: 12px; }
-.review-item { background: #fff; border: 1px solid #eaeaea; border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; font-size: 13px; }
-.review-item .entity-card-sub { margin-top: 3px; }
+.review-summary { font-size: 15px; font-weight: 600; margin-bottom: 12px; color: #f1f3f5; }
+.review-item {
+  background: #24282d;
+  color: #e5e7eb;
+  border: 1px solid #3a4047;
+  border-radius: 10px;
+  padding: 14px 18px;
+  margin-bottom: 10px;
+  font-size: 14px;
+}
+.review-item > div { color: #e5e7eb; }
+.review-item .entity-card-sub { margin-top: 5px; color: #aeb6bf; }
+.review-item .stars { color: #e0a030; }
 
 /* ---------- Витрина рейсов для клиента ---------- */
 .trip-filter { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
@@ -857,3 +867,60 @@ body.dark-theme .action-btn-chat { background: #f1f1f1; color: #17191c; border-c
 body.dark-theme .mobile-bottom-nav {background:rgba(23,25,28,.97);border-color:#34383e;}
 body.dark-theme .mobile-nav-link {color:#b7bdc5;}
 body.dark-theme .mobile-nav-link.active {background:#343941;color:#fff;}
+
+
+/* ---------- Исправление блока «Вас выбрали» в тёмной теме ---------- */
+.entity-card {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.entity-card-col {
+  width: 100%;
+  min-width: 0;
+}
+
+.entity-card-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.contact-box {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  color: #263746;
+  background: #e3f0fd;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+.contact-box strong {
+  color: #1f2937;
+}
+
+.contact-box a {
+  color: #1769aa;
+  text-decoration: underline;
+  overflow-wrap: anywhere;
+}
+
+body.dark-theme .contact-box {
+  color: #263746;
+  background: #e3f0fd;
+}
+
+body.dark-theme .contact-box strong {
+  color: #1f2937;
+}
+
+body.dark-theme .contact-box a {
+  color: #1769aa;
+}
