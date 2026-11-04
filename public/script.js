@@ -1,5 +1,34 @@
 const API_URL = "/api";
 
+// Единая тема для главной страницы и личного кабинета.
+const themeToggleBtn = document.getElementById("themeToggleBtn");
+function applyHomeTheme(isDark) {
+  document.body.classList.toggle("dark-theme", isDark);
+  if (themeToggleBtn) {
+    themeToggleBtn.textContent = isDark ? "☀" : "☾";
+    themeToggleBtn.setAttribute("aria-pressed", String(isDark));
+    const ro = window.CARGOGO_I18N?.language === "ro";
+    themeToggleBtn.setAttribute("aria-label", isDark
+      ? (ro ? "Activează tema luminoasă" : "Включить светлую тему")
+      : (ro ? "Activează tema întunecată" : "Включить тёмную тему"));
+    themeToggleBtn.title = isDark
+      ? (ro ? "Tema luminoasă" : "Светлая тема")
+      : (ro ? "Tema întunecată" : "Тёмная тема");
+  }
+}
+applyHomeTheme(localStorage.getItem("cargogo-theme") === "dark");
+if (themeToggleBtn) {
+  themeToggleBtn.addEventListener("click", () => {
+    const isDark = !document.body.classList.contains("dark-theme");
+    localStorage.setItem("cargogo-theme", isDark ? "dark" : "light");
+    applyHomeTheme(isDark);
+  });
+}
+document.addEventListener("cargogo:languagechange", () => {
+  applyHomeTheme(document.body.classList.contains("dark-theme"));
+});
+const tr = (key) => window.CARGOGO_I18N ? window.CARGOGO_I18N.t(key) : key;
+
 // ---------- Элементы окон ----------
 const registerOverlay = document.getElementById("registerOverlay");
 const loginOverlay = document.getElementById("loginOverlay");
@@ -176,14 +205,18 @@ async function checkAuthState() {
 function showGuestButtons() {
   if (guestButtons) guestButtons.style.display = "flex";
   if (accountButtons) accountButtons.style.display = "none";
+  const guestFeatures = document.getElementById("guestFeatures");
+  if (guestFeatures) guestFeatures.hidden = false;
 }
 
 function showAccountButtons(fullName) {
   if (accountGreeting) {
-    accountGreeting.textContent = fullName ? `Привет, ${fullName.split(" ")[0]}` : "";
+    accountGreeting.textContent = fullName ? `${window.CARGOGO_I18N?.language === "ro" ? "Salut" : "Привет"}, ${fullName.split(" ")[0]}` : "";
   }
   if (guestButtons) guestButtons.style.display = "none";
   if (accountButtons) accountButtons.style.display = "flex";
+  const guestFeatures = document.getElementById("guestFeatures");
+  if (guestFeatures) guestFeatures.hidden = true;
 }
 
 if (logoutFromHomeBtn) {
@@ -193,7 +226,20 @@ if (logoutFromHomeBtn) {
   });
 }
 
+// Если токен уже есть, не показываем гостевые карточки даже на время проверки сессии.
+if (localStorage.getItem("token")) {
+  const guestFeatures = document.getElementById("guestFeatures");
+  if (guestFeatures) guestFeatures.hidden = true;
+}
 checkAuthState();
+document.addEventListener("cargogo:languagechange", () => {
+  if (allHomeCargos.length) renderHomeCargos(applyCurrentHomeFilter(allHomeCargos));
+  if (allHomeTrips.length) renderHomeTrips(applyCurrentHomeFilter(allHomeTrips));
+});
+function applyCurrentHomeFilter(items) {
+  const origin = originCitySelect?.value || ""; const destination = destinationCitySelect?.value || "";
+  return items.filter(item => (!origin || item.origin_city === origin) && (!destination || item.destination_city === destination));
+}
 
 
 // ---------- Витрина: актуальные грузы и рейсы на главной ----------
@@ -225,12 +271,12 @@ function escapeHtmlHome(value) {
 
 function formatDateHome(value) {
   if (!value) return null;
-  return new Date(value).toLocaleDateString("ru-RU");
+  return new Date(value).toLocaleDateString(window.CARGOGO_I18N?.language === "ro" ? "ro-RO" : "ru-RU");
 }
 
 function formatMoneyHome(value) {
   if (value === null || value === undefined) return null;
-  return `${Number(value).toLocaleString("ru-RU")} MDL`;
+  return `${Number(value).toLocaleString(window.CARGOGO_I18N?.language === "ro" ? "ro-RO" : "ru-RU")} MDL`;
 }
 
 // При клике по карточке груза/рейса — если пользователь уже авторизован,
@@ -255,7 +301,7 @@ async function loadHomeCargos() {
     renderHomeCargos(allHomeCargos);
   } catch (err) {
     console.error("Ошибка загрузки витрины грузов:", err);
-    if (homeCargosLoading) homeCargosLoading.textContent = "Не удалось загрузить грузы";
+    if (homeCargosLoading) homeCargosLoading.textContent = window.CARGOGO_I18N?.language === "ro" ? "Nu s-au putut încărca mărfurile" : "Не удалось загрузить грузы";
   }
 }
 
@@ -271,13 +317,13 @@ function renderHomeCargos(cargos) {
     const subParts = [];
     if (cargo.cargo_type) subParts.push(cargo.cargo_type);
     if (cargo.weight_kg) subParts.push(`${cargo.weight_kg} кг`);
-    if (cargo.ready_date) subParts.push(`готов к ${formatDateHome(cargo.ready_date)}`);
+    if (cargo.ready_date) subParts.push(`${tr("ready")} ${formatDateHome(cargo.ready_date)}`);
 
     card.innerHTML = `
       <div class="listing-card-route">${escapeHtmlHome(cargo.origin_city)} → ${escapeHtmlHome(cargo.destination_city)}</div>
       ${subParts.length ? `<div class="listing-card-sub">${escapeHtmlHome(subParts.join(" · "))}</div>` : ""}
       ${cargo.price ? `<div class="listing-card-price">${escapeHtmlHome(formatMoneyHome(cargo.price))}</div>` : ""}
-      <button class="listing-card-btn">Откликнуться</button>
+      <button class="listing-card-btn">${escapeHtmlHome(tr("respond"))}</button>
     `;
 
     card.querySelector(".listing-card-btn").addEventListener("click", goToCabinetOrLogin);
@@ -297,7 +343,7 @@ async function loadHomeTrips() {
     renderHomeTrips(allHomeTrips);
   } catch (err) {
     console.error("Ошибка загрузки витрины рейсов:", err);
-    if (homeTripsLoading) homeTripsLoading.textContent = "Не удалось загрузить рейсы";
+    if (homeTripsLoading) homeTripsLoading.textContent = window.CARGOGO_I18N?.language === "ro" ? "Nu s-au putut încărca cursele" : "Не удалось загрузить рейсы";
   }
 }
 
@@ -312,13 +358,13 @@ function renderHomeTrips(trips) {
 
     const subParts = [];
     if (trip.departure_date) subParts.push(formatDateHome(trip.departure_date));
-    if (trip.capacity_kg) subParts.push(`до ${trip.capacity_kg} кг`);
+    if (trip.capacity_kg) subParts.push(`${tr("upTo")} ${trip.capacity_kg} ${tr("kg")}`);
 
     card.innerHTML = `
       <div class="listing-card-route">${escapeHtmlHome(trip.origin_city)} → ${escapeHtmlHome(trip.destination_city)}</div>
       ${subParts.length ? `<div class="listing-card-sub">${escapeHtmlHome(subParts.join(" · "))}</div>` : ""}
       ${trip.price ? `<div class="listing-card-price">${escapeHtmlHome(formatMoneyHome(trip.price))}</div>` : ""}
-      <button class="listing-card-btn">Откликнуться</button>
+      <button class="listing-card-btn">${escapeHtmlHome(tr("respond"))}</button>
     `;
 
     card.querySelector(".listing-card-btn").addEventListener("click", goToCabinetOrLogin);
@@ -405,7 +451,7 @@ document.querySelectorAll(".password-toggle").forEach((toggle) => {
 
     const isHidden = input.type === "password";
     input.type = isHidden ? "text" : "password";
-    toggle.textContent = isHidden ? "Скрыть" : "Показать";
+    toggle.textContent = isHidden ? tr("hide") : tr("show");
   });
 });
 
@@ -437,12 +483,12 @@ if (registerForm) {
       !payload.phone ||
       !payload.password
     ) {
-      errorMessage.textContent = "Заполните все поля";
+      errorMessage.textContent = tr("fillAll");
       return;
     }
 
     registerSubmitBtn.disabled = true;
-    registerSubmitBtn.textContent = "Создаём аккаунт...";
+    registerSubmitBtn.textContent = tr("creating");
 
     try {
       const response = await fetch(`${API_URL}/register`, {
@@ -459,14 +505,14 @@ if (registerForm) {
       if (!response.ok) {
         errorMessage.style.color = "";
         errorMessage.textContent =
-          data.message || "Ошибка регистрации";
+          data.message || tr("registerError");
         return;
       }
 
       // Успешная регистрация
       errorMessage.style.color = "green";
       errorMessage.textContent =
-        "Регистрация прошла успешно!";
+        tr("registered");
 
       // Через 1.5 секунды переходим к окну входа
       setTimeout(() => {
@@ -495,12 +541,12 @@ if (registerForm) {
     } catch (err) {
       errorMessage.style.color = "";
       errorMessage.textContent =
-        "Не удалось связаться с сервером";
+        tr("serverError");
 
       console.error("Ошибка регистрации:", err);
     } finally {
       registerSubmitBtn.disabled = false;
-      registerSubmitBtn.textContent = "Создать аккаунт";
+      registerSubmitBtn.textContent = tr("createAccount");
     }
   });
 }
@@ -526,13 +572,13 @@ if (loginForm) {
     // Проверка полей
     if (!email || !password) {
       loginErrorMessage.textContent =
-        "Заполните email и пароль";
+        tr("fillLogin");
       return;
     }
 
     const loginSubmitBtn = document.getElementById("loginSubmitBtn");
     loginSubmitBtn.disabled = true;
-    loginSubmitBtn.textContent = "Входим...";
+    loginSubmitBtn.textContent = tr("loggingIn");
 
     // Выполняем вход
     const success =
@@ -540,9 +586,9 @@ if (loginForm) {
 
     if (!success) {
       loginErrorMessage.textContent =
-        lastLoginError || "Неверный email или пароль";
+        lastLoginError || tr("wrongLogin");
       loginSubmitBtn.disabled = false;
-      loginSubmitBtn.textContent = "Войти";
+      loginSubmitBtn.textContent = tr("login");
     }
     // При успехе loginAndRedirect уже переносит на cabinet.html,
     // так что кнопку возвращать в исходное состояние не нужно.
@@ -585,7 +631,7 @@ async function loginAndRedirect(email, password) {
 
   } catch (err) {
     console.error("Ошибка входа:", err);
-    lastLoginError = "Не удалось связаться с сервером";
+    lastLoginError = tr("serverError");
     return false;
   }
 }

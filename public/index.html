@@ -3,6 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#f5f8f5" />
+  <meta name="description" content="CARGOGO — платформа грузоперевозок в Молдове. Находите грузы и перевозчиков напрямую." />
   <title>CARGOGO — биржа грузоперевозок</title>
   <link rel="stylesheet" href="style.css" />
 </head>
@@ -12,13 +14,17 @@
   <header class="navbar">
     <div class="logo">CARGO<span class="logo-accent">GO</span></div>
     <nav class="nav-links">
-      <a href="#cargos-section">Грузы</a>
-      <a href="#trips-section">Рейсы</a>
-      <a href="#how-it-works">Как это работает</a>
+      <a href="#cargos-section" data-i18n="navCargos">Грузы</a>
+      <a href="#trips-section" data-i18n="navTrips">Рейсы</a>
+      <a href="#how-it-works" data-i18n="navHow">Как это работает</a>
     </nav>
+    <div class="nav-tools">
+      <button class="language-toggle" id="languageToggle" type="button" aria-label="Schimbă limba în română">RO</button>
+      <button class="theme-toggle" id="themeToggleBtn" type="button" aria-label="Включить тёмную тему" title="Тёмная тема" aria-pressed="false">☾</button>
+    </div>
     <div class="nav-buttons" id="guestButtons">
-      <button class="btn btn-outline" id="openLoginBtn">Войти</button>
-      <button class="btn btn-primary" id="openRegisterBtn">Регистрация</button>
+      <button class="btn btn-outline" id="openLoginBtn" data-i18n="login">Войти</button>
+      <button class="btn btn-primary" id="openRegisterBtn" data-i18n="register">Регистрация</button>
     </div>
 
     <!-- Показывается вместо кнопок входа/регистрации, если пользователь
@@ -26,138 +32,147 @@
          не теряя сессию и не выходя из аккаунта. -->
     <div class="nav-buttons" id="accountButtons" style="display: none;">
       <span class="account-greeting" id="accountGreeting"></span>
-      <a href="cabinet.html" class="btn btn-outline">Личный кабинет<span class="notif-badge" id="homeNotifBadge" style="display: none; margin-left: 6px;"></span></a>
-      <button class="btn btn-primary" id="logoutFromHomeBtn">Выйти</button>
+      <a href="cabinet.html" class="btn btn-outline"><span data-i18n="cabinet">Личный кабинет</span><span class="notif-badge" id="homeNotifBadge" style="display: none; margin-left: 6px;"></span></a>
+      <button class="btn btn-primary" id="logoutFromHomeBtn" data-i18n="logout">Выйти</button>
     </div>
   </header>
 
-  <!-- Hero -->
+  <!-- Первый экран -->
   <section class="hero">
-    <h1>Найдите груз или перевозчика за минуты</h1>
-    <p>Биржа грузоперевозок для Молдовы — без посредников</p>
-
-    <div class="search-bar">
-      <select id="originCity" data-cities>
-        <option value="">Откуда</option>
-      </select>
-      <select id="destinationCity" data-cities>
-        <option value="">Куда</option>
-      </select>
-      <button class="btn btn-primary" id="searchBtn">Найти</button>
-      <button class="btn btn-outline" id="resetSearchBtn" style="display: none;">Сбросить</button>
+    <div class="hero-inner">
+      <div class="hero-copy">
+        <span class="hero-eyebrow"><span class="eyebrow-dot"></span><span data-i18n="heroEyebrow">Умная логистика начинается здесь</span></span>
+        <h1 data-i18n="heroTitle">Найдите груз или перевозчика за минуты</h1>
+        <p data-i18n="heroText">Биржа грузоперевозок для Молдовы — напрямую, удобно и прозрачно.</p>
+        <div class="hero-points"><span>✓ <span data-i18n="heroPoint1">Без посредников</span></span><span>✓ <span data-i18n="heroPoint2">Быстрый поиск</span></span><span>✓ <span data-i18n="heroPoint3">Вся Молдова</span></span></div>
+      </div>
+      <div class="search-panel">
+        <div class="search-panel-heading"><span class="search-icon">⌕</span><div><strong data-i18n="searchTitle">Найти перевозку</strong><small data-i18n="searchHint">Выберите направление</small></div></div>
+        <div class="search-bar">
+          <label class="search-field"><span data-i18n="from">Откуда</span><select id="originCity" data-cities aria-label="Откуда"><option value="">Откуда</option></select></label>
+          <span class="route-arrow">→</span>
+          <label class="search-field"><span data-i18n="to">Куда</span><select id="destinationCity" data-cities aria-label="Куда"><option value="">Куда</option></select></label>
+          <button class="btn btn-primary" id="searchBtn" data-i18n="search">Найти</button>
+          <button class="btn btn-outline" id="resetSearchBtn" style="display: none;" data-i18n="reset">Сбросить</button>
+        </div>
+        <div class="search-footnote"><span>🔒</span><span data-i18n="searchSecure">Ваши контакты доступны только после входа</span></div>
+      </div>
     </div>
+    <div class="hero-decoration hero-decoration-one"></div><div class="hero-decoration hero-decoration-two"></div>
   </section>
 
+  <section class="trust-strip" aria-label="Преимущества CARGOGO"><div><strong>01</strong><span data-i18n="trust1">Прямые контакты</span></div><div><strong>02</strong><span data-i18n="trust2">Прозрачные условия</span></div><div><strong>03</strong><span data-i18n="trust3">Локальная платформа</span></div></section>
+
   <!-- Фичи / призывы к действию -->
-  <section class="features">
+  <section class="features" id="guestFeatures">
     <div class="feature-card">
       <div class="feature-icon">📦</div>
-      <p class="feature-title">Разместить груз</p>
-      <p class="feature-text">Укажите маршрут, вес и бюджет — перевозчики увидят ваш груз сразу.</p>
-      <button class="btn btn-outline feature-btn" id="ctaClientBtn">Я клиент</button>
+      <p class="feature-title" data-i18n="feature1Title">Разместить груз</p>
+      <p class="feature-text" data-i18n="feature1Text">Укажите маршрут, вес и бюджет — перевозчики увидят ваш груз сразу.</p>
+      <button class="btn btn-outline feature-btn" id="ctaClientBtn" data-i18n="client">Я клиент</button>
     </div>
     <div class="feature-card">
       <div class="feature-icon">🚚</div>
-      <p class="feature-title">Стать перевозчиком</p>
-      <p class="feature-text">Добавьте автомобиль, выставляйте рейсы и находите грузы под свой маршрут.</p>
-      <button class="btn btn-outline feature-btn" id="ctaCarrierBtn">Я перевозчик</button>
+      <p class="feature-title" data-i18n="feature2Title">Стать перевозчиком</p>
+      <p class="feature-text" data-i18n="feature2Text">Добавьте автомобиль, выставляйте рейсы и находите грузы под свой маршрут.</p>
+      <button class="btn btn-outline feature-btn" id="ctaCarrierBtn" data-i18n="carrier">Я перевозчик</button>
     </div>
     <div class="feature-card">
       <div class="feature-icon">✅</div>
-      <p class="feature-title">Без посредников</p>
-      <p class="feature-text">Связывайтесь напрямую — никаких скрытых комиссий за сделку.</p>
+      <p class="feature-title" data-i18n="feature3Title">Без посредников</p>
+      <p class="feature-text" data-i18n="feature3Text">Связывайтесь напрямую — никаких скрытых комиссий за сделку.</p>
     </div>
   </section>
 
   <!-- Витрина: актуальные грузы -->
   <section class="listing-section" id="cargos-section">
     <div class="listing-header">
-      <h2>Актуальные грузы</h2>
-      <p class="listing-subtitle">Грузы, размещённые клиентами прямо сейчас</p>
+      <h2 data-i18n="cargosTitle">Актуальные грузы</h2>
+      <p class="listing-subtitle" data-i18n="cargosSubtitle">Грузы, размещённые клиентами прямо сейчас</p>
     </div>
 
     <div class="listing-grid" id="homeCargosList"></div>
-    <p class="listing-loading" id="homeCargosLoading">Загружаем грузы...</p>
-    <p class="listing-empty" id="homeCargosEmpty" style="display: none;">Подходящих грузов пока нет.</p>
+    <p class="listing-loading" id="homeCargosLoading" data-i18n="loadingCargos">Загружаем грузы...</p>
+    <p class="listing-empty" id="homeCargosEmpty" style="display: none;" data-i18n="emptyCargos">Подходящих грузов пока нет.</p>
   </section>
 
   <!-- Витрина: актуальные рейсы -->
   <section class="listing-section" id="trips-section">
     <div class="listing-header">
-      <h2>Актуальные рейсы</h2>
-      <p class="listing-subtitle">Свободные рейсы от перевозчиков</p>
+      <h2 data-i18n="tripsTitle">Актуальные рейсы</h2>
+      <p class="listing-subtitle" data-i18n="tripsSubtitle">Свободные рейсы от перевозчиков</p>
     </div>
 
     <div class="listing-grid" id="homeTripsList"></div>
-    <p class="listing-loading" id="homeTripsLoading">Загружаем рейсы...</p>
-    <p class="listing-empty" id="homeTripsEmpty" style="display: none;">Подходящих рейсов пока нет.</p>
+    <p class="listing-loading" id="homeTripsLoading" data-i18n="loadingTrips">Загружаем рейсы...</p>
+    <p class="listing-empty" id="homeTripsEmpty" style="display: none;" data-i18n="emptyTrips">Подходящих рейсов пока нет.</p>
   </section>
 
   <!-- Как это работает -->
   <section class="how-it-works" id="how-it-works">
-    <h2>Как это работает</h2>
+    <h2 data-i18n="howTitle">Как это работает</h2>
     <div class="steps">
       <div class="step">
         <div class="step-number">1</div>
-        <p class="step-title">Зарегистрируйтесь</p>
-        <p class="step-text">Выберите, кто вы — клиент или перевозчик. Это займёт меньше минуты.</p>
+        <p class="step-title" data-i18n="step1Title">Зарегистрируйтесь</p>
+        <p class="step-text" data-i18n="step1Text">Выберите, кто вы — клиент или перевозчик. Это займёт меньше минуты.</p>
       </div>
       <div class="step">
         <div class="step-number">2</div>
-        <p class="step-title">Разместите груз или рейс</p>
-        <p class="step-text">Клиент указывает маршрут и груз, перевозчик — автомобиль и свободный рейс.</p>
+        <p class="step-title" data-i18n="step2Title">Разместите груз или рейс</p>
+        <p class="step-text" data-i18n="step2Text">Клиент указывает маршрут и груз, перевозчик — автомобиль и свободный рейс.</p>
       </div>
       <div class="step">
         <div class="step-number">3</div>
-        <p class="step-title">Свяжитесь напрямую</p>
-        <p class="step-text">В личном кабинете видны контакты второй стороны — договаривайтесь сами.</p>
+        <p class="step-title" data-i18n="step3Title">Свяжитесь напрямую</p>
+        <p class="step-text" data-i18n="step3Text">В личном кабинете видны контакты второй стороны — договаривайтесь сами.</p>
       </div>
     </div>
   </section>
 
   <footer class="site-footer">
     <div class="logo">CARGO<span class="logo-accent">GO</span></div>
-    <p>Биржа грузоперевозок для Молдовы · <span id="footerYear"></span></p>
+    <p><span data-i18n="footer">Биржа грузоперевозок для Молдовы</span> · <span id="footerYear"></span></p>
   </footer>
 
   <!-- Модальное окно регистрации -->
   <div class="modal-overlay" id="registerOverlay">
     <div class="modal">
       <div class="modal-header">
-        <p class="modal-title">Регистрация</p>
+        <p class="modal-title" data-i18n="registerTitle">Регистрация</p>
         <span class="modal-close" id="closeRegisterBtn">&times;</span>
       </div>
-      <p class="modal-subtitle">Выберите тип аккаунта, чтобы начать.</p>
+      <p class="modal-subtitle" data-i18n="registerSubtitle">Выберите тип аккаунта, чтобы начать.</p>
 
       <div class="role-switch">
-        <button type="button" class="role-btn active" id="roleClientBtn" data-role="client">Клиент</button>
-        <button type="button" class="role-btn" id="roleCarrierBtn" data-role="carrier">Перевозчик</button>
+        <button type="button" class="role-btn active" id="roleClientBtn" data-role="client" data-i18n="clientRole">Клиент</button>
+        <button type="button" class="role-btn" id="roleCarrierBtn" data-role="carrier" data-i18n="carrierRole">Перевозчик</button>
       </div>
 
       <form id="registerForm">
         <input type="hidden" id="role" name="role" value="client" />
 
-        <label for="fullName">Имя</label>
-        <input type="text" id="fullName" name="fullName" placeholder="Ион Попеску" required />
+        <label for="fullName" data-i18n="name">Имя</label>
+        <input type="text" id="fullName" name="fullName" placeholder="Ion Popescu" required />
 
-        <label for="email">Email</label>
+        <label for="email" data-i18n="email">Email</label>
         <input type="email" id="email" name="email" placeholder="name@mail.com" required />
 
-        <label for="phone">Телефон</label>
+        <label for="phone" data-i18n="phone">Телефон</label>
         <input type="tel" id="phone" name="phone" placeholder="+373 6X XXX XXX" required />
 
-        <label for="password">Пароль</label>
+        <label for="password" data-i18n="password">Пароль</label>
         <div class="password-field">
-          <input type="password" id="password" name="password" placeholder="Минимум 8 символов, буквы и цифры" minlength="8" maxlength="72" required />
-          <span class="password-toggle" data-target="password">Показать</span>
+          <input type="password" id="password" name="password" placeholder="Минимум 8 символов, буквы и цифры" data-i18n-placeholder="passwordHint" minlength="8" maxlength="72" required />
+          <span class="password-toggle" data-target="password" data-i18n="show">Показать</span>
         </div>
 
         <p class="error-message" id="errorMessage"></p>
 
-        <button type="submit" class="btn btn-primary btn-full" id="registerSubmitBtn">Создать аккаунт</button>
+        <button type="submit" class="btn btn-primary btn-full" id="registerSubmitBtn" data-i18n="createAccount">Создать аккаунт</button>
       </form>
 
-      <p class="modal-footer">Уже есть аккаунт? <span class="link" id="switchToLoginLink">Войти</span></p>
+      <p class="modal-footer"><span data-i18n="hasAccount">Уже есть аккаунт?</span> <span class="link" id="switchToLoginLink" data-i18n="login">Войти</span></p>
     </div>
   </div>
 
@@ -165,32 +180,32 @@
   <div class="modal-overlay" id="loginOverlay">
     <div class="modal">
       <div class="modal-header">
-        <p class="modal-title">Вход</p>
+        <p class="modal-title" data-i18n="login">Вход</p>
         <span class="modal-close" id="closeLoginBtn">&times;</span>
       </div>
-      <p class="modal-subtitle">Войдите в свой аккаунт CARGOGO.</p>
+      <p class="modal-subtitle" data-i18n="loginSubtitle">Войдите в свой аккаунт CARGOGO.</p>
 
       <form id="loginForm">
-        <label for="loginEmail">Email</label>
+        <label for="loginEmail" data-i18n="email">Email</label>
         <input type="email" id="loginEmail" name="loginEmail" placeholder="name@mail.com" required />
 
-        <label for="loginPassword">Пароль</label>
+        <label for="loginPassword" data-i18n="password">Пароль</label>
         <div class="password-field">
           <input type="password" id="loginPassword" name="loginPassword" placeholder="Ваш пароль" required />
-          <span class="password-toggle" data-target="loginPassword">Показать</span>
+          <span class="password-toggle" data-target="loginPassword" data-i18n="show">Показать</span>
         </div>
 
         <p class="error-message" id="loginErrorMessage"></p>
 
-        <button type="submit" class="btn btn-primary btn-full" id="loginSubmitBtn">Войти</button>
+        <button type="submit" class="btn btn-primary btn-full" id="loginSubmitBtn" data-i18n="login">Войти</button>
       </form>
 
-      <p class="modal-footer">Нет аккаунта? <span class="link" id="switchToRegisterLink">Зарегистрироваться</span></p>
+      <p class="modal-footer"><span data-i18n="noAccount">Нет аккаунта?</span> <span class="link" id="switchToRegisterLink" data-i18n="signUp">Зарегистрироваться</span></p>
     </div>
   </div>
 
+  <script src="i18n.js"></script>
   <script src="cities.js"></script>
-
   <script src="script.js"></script>
 </body>
 </html>

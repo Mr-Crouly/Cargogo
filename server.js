@@ -10,11 +10,42 @@ require("dotenv").config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Минимальные защитные HTTP-заголовки (без дополнительной зависимости).
+app.disable("x-powered-by");
+app.use((req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
+  if (process.env.NODE_ENV === "production") {
+    res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  }
+  next();
+});
+
+// По умолчанию API принимает запросы только с того же origin.
+// Для отдельного фронтенда задайте CORS_ORIGIN=https://ваш-домен.
+const allowedOrigins = (process.env.CORS_ORIGIN || "").split(",").map(v => v.trim()).filter(Boolean);
+const corsOptions = {
+  origin(origin, callback) {
+    // Без CORS_ORIGIN межсайтовые браузерные запросы не получают CORS-заголовки;
+    // обычные same-origin запросы продолжают работать без CORS-разрешения.
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.length === 0) return callback(null, false);
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    return callback(new Error("Origin is not allowed by CORS"));
+  },
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  optionsSuccessStatus: 204
+};
+
 // За прокси (nginx, Heroku и т.п.) включите TRUST_PROXY=1, иначе все пользователи будут выглядеть как один IP
 if (process.env.TRUST_PROXY) app.set("trust proxy", Number(process.env.TRUST_PROXY) || 1);
 
-app.use(cors());
-app.use(express.json());
+app.use(cors(corsOptions));
+app.use(express.json({ limit: "100kb" }));
 // Сайт (HTML, CSS, JS) лежит в папке public. Корень проекта отдавать нельзя: оттуда можно было бы скачать server.js и db.js
 app.use(express.static(path.join(__dirname, "public")));
 
@@ -1874,6 +1905,11 @@ app.post("/api/notifications/:id/read", authMiddleware, async (req, res) => {
     return res.status(500).json({ message: "Ошибка сервера" });
   }
 });
+
+if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
+  console.error("JWT_SECRET не задан или слишком короткий. Укажите в .env случайный секрет длиной не менее 32 символов.");
+  process.exit(1);
+}
 
 ensureSchema()
   .then(() => {

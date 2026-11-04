@@ -1257,21 +1257,31 @@ if (logoutBtn) {
 // ---------- Запуск ----------
 // ---------- Переключение светлой / тёмной темы ----------
 const themeToggleBtn = document.getElementById("themeToggleBtn");
+const themeToggleTop = document.getElementById("themeToggleTop");
 function applyCabinetTheme(isDark) {
   document.body.classList.toggle("dark-theme", isDark);
+
   if (themeToggleBtn) {
     themeToggleBtn.textContent = isDark ? "Включить светлую" : "Включить тёмную";
     themeToggleBtn.setAttribute("aria-pressed", String(isDark));
   }
+
+  if (themeToggleTop) {
+    themeToggleTop.textContent = isDark ? "☀" : "☾";
+    themeToggleTop.setAttribute("aria-pressed", String(isDark));
+    themeToggleTop.setAttribute("aria-label", isDark ? "Включить светлую тему" : "Включить тёмную тему");
+    themeToggleTop.title = isDark ? "Светлая тема" : "Тёмная тема";
+  }
 }
+
 const savedTheme = localStorage.getItem("cargogo-theme");
 applyCabinetTheme(savedTheme === "dark");
-if (themeToggleBtn) {
-  themeToggleBtn.addEventListener("click", () => {
-    const isDark = !document.body.classList.contains("dark-theme");
-    localStorage.setItem("cargogo-theme", isDark ? "dark" : "light");
-    applyCabinetTheme(isDark);
-  });
+function toggleCabinetTheme() {
+  const isDark = !document.body.classList.contains("dark-theme");
+  localStorage.setItem("cargogo-theme", isDark ? "dark" : "light");
+  applyCabinetTheme(isDark);
 }
+if (themeToggleBtn) themeToggleBtn.addEventListener("click", toggleCabinetTheme);
+if (themeToggleTop) themeToggleTop.addEventListener("click", toggleCabinetTheme);
 
 loadProfile();

@@ -22,20 +22,44 @@ const CITY_GROUPS = [
 
 function populateCitySelects() {
   document.querySelectorAll("select[data-cities]").forEach((select) => {
-    // Оставляем первый option (плейсхолдер «Откуда» / «Выберите город»)
-    while (select.options.length > 1) select.remove(1);
+    const selectedValue = select.value;
+    const placeholder = select.options[0];
+
+    // Удаляем целые optgroup, а не только option: select.remove(index)
+    // оставлял пустые группы, из-за чего после смены языка города дублировались.
+    while (select.children.length > 1) {
+      select.removeChild(select.lastElementChild);
+    }
+
+    if (placeholder) {
+      const fromIds = ["originCity", "tripsFilterOrigin"];
+      const toIds = ["destinationCity", "tripsFilterDestination"];
+      const key = fromIds.includes(select.id) ? "from" : toIds.includes(select.id) ? "to" : "selectCity";
+      const fallback = key === "from" ? "Откуда" : key === "to" ? "Куда" : "Выберите город";
+      placeholder.textContent = window.CARGOGO_I18N?.t(key) || fallback;
+    }
+
     CITY_GROUPS.forEach((group) => {
       const optgroup = document.createElement("optgroup");
-      optgroup.label = group.label;
+      optgroup.label = group.label === "Молдова"
+        ? (window.CARGOGO_I18N?.t("cityMoldova") || group.label)
+        : (window.CARGOGO_I18N?.t("cityNeighbor") || group.label);
+
       group.cities.forEach((city) => {
         const option = document.createElement("option");
-        option.textContent = city;
+        option.textContent = window.CARGOGO_I18N ? window.CARGOGO_I18N.cityName(city) : city;
+        // Значение остаётся каноническим русским названием для совместимости с БД.
         option.value = city;
         optgroup.appendChild(option);
       });
       select.appendChild(optgroup);
     });
+
+    if (selectedValue && [...select.options].some(option => option.value === selectedValue)) {
+      select.value = selectedValue;
+    }
   });
 }
 
 populateCitySelects();
+document.addEventListener('cargogo:languagechange', populateCitySelects);
