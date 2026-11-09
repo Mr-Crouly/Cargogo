@@ -3,6 +3,8 @@ const cors = require("cors");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const path = require("path");
+const fs = require("fs");
+const crypto = require("crypto");
 const pool = require("./db");
 const authMiddleware = require("./authMiddleware");
 require("dotenv").config();
@@ -45,7 +47,7 @@ const corsOptions = {
 if (process.env.TRUST_PROXY) app.set("trust proxy", Number(process.env.TRUST_PROXY) || 1);
 
 app.use(cors(corsOptions));
-app.use(express.json({ limit: "100kb" }));
+app.use(express.json({ limit: "3mb" }));
 // Сайт (HTML, CSS, JS) лежит в папке public. Корень проекта отдавать нельзя: оттуда можно было бы скачать server.js и db.js
 app.use(express.static(path.join(__dirname, "public")));
 
@@ -268,7 +270,8 @@ const MINUTE = 60 * 1000;
 const loginPairLimiter = createLimiter({ max: 5, windowMs: 15 * MINUTE, lockMs: 15 * MINUTE });   // email + IP
 const loginIpLimiter = createLimiter({ max: 50, windowMs: 15 * MINUTE, lockMs: 15 * MINUTE });    // перебор разных email
 const passwordLimiter = createLimiter({ max: 5, windowMs: 15 * MINUTE, lockMs: 15 * MINUTE });    // смена пароля
-const registerLimiter = createLimiter({ max: 30, windowMs: 60 * MINUTE, lockMs: 60 * MINUTE });   // регистрации с одного IP
+const registerLimiter = createLimiter({ max: 30, windowMs: 60 * MINUTE, lockMs: 60 * MINUTE });
+const avatarLimiter = createLimiter({ max: 5, windowMs: 15 * MINUTE, lockMs: 15 * MINUTE });   // регистрации с одного IP
 
 function tooMany(res, seconds) {
   res.set("Retry-After", String(seconds));
@@ -392,6 +395,8 @@ async function ensureFkToUsers(table, column) {
 }
 
 async function ensureSchema() {
+  // Фото профиля хранится как безопасный путь к файлу в public/uploads.
+  await ensureColumn("users", "avatar_url", "TEXT");
   // ---------- vehicles ----------
   await pool.query(`CREATE TABLE IF NOT EXISTS vehicles (id SERIAL PRIMARY KEY);`);
   await ensureColumn("vehicles", "user_id", "INTEGER REFERENCES users(id) ON DELETE CASCADE");
@@ -442,6 +447,37 @@ async function ensureSchema() {
     "id", "client_id", "origin_city", "destination_city", "cargo_type", "weight_kg",
     "price", "ready_date", "comment", "status", "created_at",
   ]);
+
+  // ---------- Модерация объявлений и административная панель ----------
+  // Старые объявления считаются уже проверенными; новые получают pending.
+  await ensureColumn("cargos", "moderation_status", "VARCHAR(20) NOT NULL DEFAULT 'approved'");
+  await pool.query("UPDATE cargos SET moderation_status = 'approved' WHERE moderation_status IS NULL");
+  await pool.query("ALTER TABLE cargos ALTER COLUMN moderation_status SET NOT NULL");
+  await pool.query("ALTER TABLE cargos ALTER COLUMN moderation_status SET DEFAULT 'pending'");
+  await ensureColumn("cargos", "moderation_reason", "TEXT");
+  await ensureColumn("cargos", "moderated_at", "TIMESTAMP");
+  await ensureColumn("cargos", "moderated_by", "INTEGER REFERENCES users(id) ON DELETE SET NULL");
+
+  await ensureColumn("trips", "moderation_status", "VARCHAR(20) NOT NULL DEFAULT 'approved'");
+  await pool.query("UPDATE trips SET moderation_status = 'approved' WHERE moderation_status IS NULL");
+  await pool.query("ALTER TABLE trips ALTER COLUMN moderation_status SET NOT NULL");
+  await pool.query("ALTER TABLE trips ALTER COLUMN moderation_status SET DEFAULT 'pending'");
+  await ensureColumn("trips", "moderation_reason", "TEXT");
+  await ensureColumn("trips", "moderated_at", "TIMESTAMP");
+  await ensureColumn("trips", "moderated_by", "INTEGER REFERENCES users(id) ON DELETE SET NULL");
+
+  await ensureColumn("users", "is_blocked", "BOOLEAN NOT NULL DEFAULT FALSE");
+  await pool.query(`CREATE TABLE IF NOT EXISTS admin_audit (
+    id BIGSERIAL PRIMARY KEY,
+    admin_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    action VARCHAR(40) NOT NULL,
+    entity_type VARCHAR(30) NOT NULL,
+    entity_id INTEGER,
+    details TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+  )`);
+  await pool.query("CREATE INDEX IF NOT EXISTS cargos_moderation_idx ON cargos (moderation_status, created_at DESC)");
+  await pool.query("CREATE INDEX IF NOT EXISTS trips_moderation_idx ON trips (moderation_status, created_at DESC)");
 
   // ---------- responses (отклики перевозчиков на грузы) ----------
   await pool.query(`CREATE TABLE IF NOT EXISTS responses (id SERIAL PRIMARY KEY);`);
@@ -636,7 +672,7 @@ app.post("/api/login", async (req, res) => {
 
   try {
     const result = await pool.query(
-      "SELECT id, email, password_hash, role, full_name FROM users WHERE LOWER(email) = LOWER($1) ORDER BY id LIMIT 1",
+      "SELECT id, email, password_hash, role, full_name, is_blocked FROM users WHERE LOWER(email) = LOWER($1) ORDER BY id LIMIT 1",
       [email]
     );
 
@@ -650,6 +686,10 @@ app.post("/api/login", async (req, res) => {
       return res.status(401).json({
         message: `Неверный email или пароль. Осталось попыток: ${pairHit.remaining}`,
       });
+    }
+
+    if (user.is_blocked) {
+      return res.status(403).json({ message: "Аккаунт временно заблокирован. Обратитесь в поддержку." });
     }
 
     loginPairLimiter.reset(pairKey);
@@ -718,13 +758,63 @@ app.put("/api/password", authMiddleware, async (req, res) => {
   }
 });
 
+// ---------- POST /api/profile/avatar ----------
+// Принимаем только JPEG/PNG/WebP, ограничиваем размер и проверяем сигнатуру файла.
+app.post("/api/profile/avatar", authMiddleware, async (req, res) => {
+  const limit = avatarLimiter.hit(String(req.user.userId));
+  if (limit.blocked) return tooMany(res, limit.retryAfter);
+  try {
+    const dataUrl = typeof req.body.image === "string" ? req.body.image : "";
+    const match = dataUrl.match(/^data:image\/(jpeg|png|webp);base64,([A-Za-z0-9+/=]+)$/);
+    if (!match) return res.status(400).json({ message: "Выберите изображение JPG, PNG или WebP" });
+
+    const mime = `image/${match[1]}`;
+    const buffer = Buffer.from(match[2], "base64");
+    if (!buffer.length || buffer.length > 2 * 1024 * 1024) {
+      return res.status(413).json({ message: "Размер фото не должен превышать 2 МБ" });
+    }
+
+    const isJpeg = mime === "image/jpeg" && buffer.length > 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+    const isPng = mime === "image/png" && buffer.length > 8 && buffer.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10]));
+    const isWebp = mime === "image/webp" && buffer.length > 12 && buffer.toString("ascii", 0, 4) === "RIFF" && buffer.toString("ascii", 8, 12) === "WEBP";
+    if (!isJpeg && !isPng && !isWebp) return res.status(400).json({ message: "Файл не прошёл проверку формата" });
+
+    const ext = match[1] === "jpeg" ? "jpg" : match[1];
+    const filename = `${crypto.randomBytes(18).toString("hex")}.${ext}`;
+    const uploadDir = path.join(__dirname, "public", "uploads");
+    await fs.promises.mkdir(uploadDir, { recursive: true });
+    await fs.promises.writeFile(path.join(uploadDir, filename), buffer, { flag: "wx" });
+    const avatarUrl = `/uploads/${filename}`;
+
+    const oldResult = await pool.query("SELECT avatar_url FROM users WHERE id = $1", [req.user.userId]);
+    const oldAvatar = oldResult.rows[0]?.avatar_url || null;
+    const result = await pool.query(
+      "UPDATE users SET avatar_url = $1 WHERE id = $2 RETURNING avatar_url",
+      [avatarUrl, req.user.userId]
+    );
+    if (!result.rows.length) {
+      await fs.promises.unlink(path.join(uploadDir, filename)).catch(() => {});
+      return res.status(404).json({ message: "Пользователь не найден" });
+    }
+
+    // Удаляем только предыдущий файл из собственного каталога загрузок.
+    if (typeof oldAvatar === "string" && /^\/uploads\/[a-f0-9]{36}\.(jpg|png|webp)$/.test(oldAvatar) && oldAvatar !== avatarUrl) {
+      await fs.promises.unlink(path.join(uploadDir, path.basename(oldAvatar))).catch(() => {});
+    }
+    return res.json({ message: "Фото профиля обновлено", avatar_url: avatarUrl });
+  } catch (err) {
+    console.error("Ошибка загрузки фото профиля:", err);
+    return res.status(500).json({ message: "Не удалось сохранить фото профиля" });
+  }
+});
+
 // ---------- GET /api/me ----------
 // Защищённый эндпоинт: возвращает данные текущего пользователя + его профиль.
 // Требует заголовок Authorization: Bearer <token>
 app.get("/api/me", authMiddleware, async (req, res) => {
   try {
     const userResult = await pool.query(
-      "SELECT id, email, phone, full_name, role, created_at FROM users WHERE id = $1",
+      "SELECT id, email, phone, full_name, role, created_at, avatar_url FROM users WHERE id = $1",
       [req.user.userId]
     );
 
@@ -806,7 +896,7 @@ app.put("/api/profile", authMiddleware, async (req, res) => {
 
     // Возвращаем свежие данные, как их отдаёт /api/me
     const userResult = await pool.query(
-      "SELECT id, email, phone, full_name, role, created_at FROM users WHERE id = $1",
+      "SELECT id, email, phone, full_name, role, created_at, avatar_url FROM users WHERE id = $1",
       [req.user.userId]
     );
     const user = userResult.rows[0];
@@ -848,7 +938,7 @@ app.get("/api/public/cargos", async (req, res) => {
     const result = await pool.query(
       `SELECT id, origin_city, destination_city, cargo_type, weight_kg, price, ready_date, created_at
        FROM cargos
-       WHERE status = 'active'
+       WHERE status = 'active' AND moderation_status = 'approved'
        ORDER BY created_at DESC
        LIMIT 24`
     );
@@ -865,7 +955,7 @@ app.get("/api/public/trips", async (req, res) => {
     const result = await pool.query(
       `SELECT id, origin_city, destination_city, departure_date, price, capacity_kg, created_at
        FROM trips
-       WHERE status = 'active' AND (departure_date IS NULL OR departure_date >= CURRENT_DATE)
+       WHERE status = 'active' AND moderation_status = 'approved' AND (departure_date IS NULL OR departure_date >= CURRENT_DATE)
        ORDER BY created_at DESC
        LIMIT 24`
     );
@@ -954,7 +1044,7 @@ app.get("/api/trips", authMiddleware, requireRole("carrier"), async (req, res) =
   try {
     const result = await pool.query(
       `SELECT t.id, t.origin_city, t.destination_city, t.departure_date, t.price,
-              t.capacity_kg, t.comment, t.status, t.created_at,
+              t.capacity_kg, t.comment, t.status, t.moderation_status, t.moderation_reason, t.created_at,
               t.vehicle_id, v.brand AS vehicle_brand, v.plate_number AS vehicle_plate
        FROM trips t
        LEFT JOIN vehicles v ON v.id = t.vehicle_id
@@ -997,9 +1087,9 @@ app.post("/api/trips", authMiddleware, requireRole("carrier"), async (req, res) 
     }
 
     const result = await pool.query(
-      `INSERT INTO trips (carrier_id, vehicle_id, origin_city, destination_city, departure_date, price, capacity_kg, comment)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-       RETURNING id, origin_city, destination_city, departure_date, price, capacity_kg, comment, status, created_at, vehicle_id`,
+      `INSERT INTO trips (carrier_id, vehicle_id, origin_city, destination_city, departure_date, price, capacity_kg, comment, moderation_status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending')
+       RETURNING id, origin_city, destination_city, departure_date, price, capacity_kg, comment, status, moderation_status, created_at, vehicle_id`,
       [
         req.user.userId,
         safeVehicleId,
@@ -1043,7 +1133,7 @@ app.get("/api/cargos", authMiddleware, requireRole("client"), async (req, res) =
   try {
     const result = await pool.query(
       `SELECT c.id, c.origin_city, c.destination_city, c.origin_address, c.destination_address, c.cargo_type, c.weight_kg, c.price,
-              c.ready_date, c.comment, c.status, c.created_at,
+              c.ready_date, c.comment, c.status, c.moderation_status, c.moderation_reason, c.created_at,
               (SELECT COUNT(*)::int FROM responses r WHERE r.cargo_id = c.id) AS responses_count,
               (SELECT rv.rating FROM reviews rv WHERE rv.cargo_id = c.id) AS review_rating,
               (SELECT u.full_name FROM responses r JOIN users u ON u.id = r.carrier_id
@@ -1071,7 +1161,7 @@ app.get("/api/cargos/public", authMiddleware, requireRole("carrier"), async (req
        FROM cargos c
        JOIN users u ON u.id = c.client_id
        LEFT JOIN responses r ON r.cargo_id = c.id AND r.carrier_id = $1
-       WHERE c.status = 'active'
+       WHERE c.status = 'active' AND c.moderation_status = 'approved'
        ORDER BY c.created_at DESC`,
       [req.user.userId]
     );
@@ -1098,9 +1188,9 @@ app.post("/api/cargos", authMiddleware, requireRole("client"), async (req, res) 
 
   try {
     const result = await pool.query(
-      `INSERT INTO cargos (client_id, origin_city, destination_city, origin_address, destination_address, cargo_type, weight_kg, price, ready_date, comment)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-       RETURNING id, origin_city, destination_city, origin_address, destination_address, cargo_type, weight_kg, price, ready_date, comment, status, created_at`,
+      `INSERT INTO cargos (client_id, origin_city, destination_city, origin_address, destination_address, cargo_type, weight_kg, price, ready_date, comment, moderation_status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'pending')
+       RETURNING id, origin_city, destination_city, origin_address, destination_address, cargo_type, weight_kg, price, ready_date, comment, status, moderation_status, created_at`,
       [
         req.user.userId,
         originCity.trim(),
@@ -1155,12 +1245,12 @@ app.post("/api/cargos/:id/respond", authMiddleware, requireRole("carrier"), asyn
   }
 
   try {
-    const cargo = await pool.query("SELECT id, status FROM cargos WHERE id = $1", [req.params.id]);
+    const cargo = await pool.query("SELECT id, status, moderation_status FROM cargos WHERE id = $1", [req.params.id]);
     if (cargo.rows.length === 0) {
       return res.status(404).json({ message: "Груз не найден" });
     }
-    if (cargo.rows[0].status !== "active") {
-      return res.status(409).json({ message: "Этот груз уже недоступен для откликов" });
+    if (cargo.rows[0].status !== "active" || cargo.rows[0].moderation_status !== "approved") {
+      return res.status(409).json({ message: "Этот груз ещё не опубликован или уже недоступен для откликов" });
     }
 
     const existing = await pool.query(
@@ -1755,7 +1845,7 @@ app.get("/api/trips/public", authMiddleware, requireRole("client"), async (req, 
        JOIN users u ON u.id = t.carrier_id
        LEFT JOIN carrier_profiles cp ON cp.user_id = t.carrier_id
        LEFT JOIN vehicles v ON v.id = t.vehicle_id
-       WHERE t.status = 'active' AND (t.departure_date IS NULL OR t.departure_date >= CURRENT_DATE)
+       WHERE t.status = 'active' AND t.moderation_status = 'approved' AND (t.departure_date IS NULL OR t.departure_date >= CURRENT_DATE)
        ORDER BY t.departure_date ASC NULLS LAST, t.created_at DESC
        LIMIT 100`
     );
@@ -1904,6 +1994,150 @@ app.post("/api/notifications/:id/read", authMiddleware, async (req, res) => {
     console.error("Ошибка отметки уведомления:", err);
     return res.status(500).json({ message: "Ошибка сервера" });
   }
+});
+
+// ==================== ADMIN API ====================
+// Доступ выдаётся только адресам из ADMIN_EMAILS в .env. Роль нельзя назначить
+// через публичную регистрацию или изменить из пользовательского кабинета.
+const adminEmails = (process.env.ADMIN_EMAILS || "").split(",").map(v => v.trim().toLowerCase()).filter(Boolean);
+async function requireAdmin(req, res, next) {
+  try {
+    const result = await pool.query("SELECT id, email, is_blocked FROM users WHERE id = $1", [req.user.userId]);
+    const account = result.rows[0];
+    if (!account || account.is_blocked) return res.status(403).json({ message: "Доступ запрещён" });
+    if (!adminEmails.includes(String(account.email).toLowerCase())) {
+      return res.status(403).json({ message: "Недостаточно прав администратора" });
+    }
+    req.admin = account;
+    next();
+  } catch (err) {
+    console.error("Ошибка проверки администратора:", err);
+    return res.status(500).json({ message: "Ошибка проверки доступа" });
+  }
+}
+const adminOnly = [authMiddleware, requireAdmin];
+async function writeAdminAudit(adminId, action, entityType, entityId, details = "") {
+  await pool.query(
+    "INSERT INTO admin_audit (admin_id, action, entity_type, entity_id, details) VALUES ($1, $2, $3, $4, $5)",
+    [adminId, action, entityType, entityId || null, String(details).slice(0, 1000)]
+  );
+}
+
+app.get("/api/admin/overview", ...adminOnly, async (req, res) => {
+  try {
+    const [users, cargos, trips, pendingCargos, pendingTrips, approvedCargos, approvedTrips, blocked] = await Promise.all([
+      pool.query("SELECT COUNT(*)::int AS total FROM users"),
+      pool.query("SELECT COUNT(*)::int AS total FROM cargos"),
+      pool.query("SELECT COUNT(*)::int AS total FROM trips"),
+      pool.query("SELECT COUNT(*)::int AS total FROM cargos WHERE moderation_status = 'pending'"),
+      pool.query("SELECT COUNT(*)::int AS total FROM trips WHERE moderation_status = 'pending'"),
+      pool.query("SELECT COUNT(*)::int AS total FROM cargos WHERE moderation_status = 'approved'"),
+      pool.query("SELECT COUNT(*)::int AS total FROM trips WHERE moderation_status = 'approved'"),
+      pool.query("SELECT COUNT(*)::int AS total FROM users WHERE is_blocked = TRUE")
+    ]);
+    return res.json({ stats: {
+      users: users.rows[0].total, cargos: cargos.rows[0].total, trips: trips.rows[0].total,
+      pendingCargos: pendingCargos.rows[0].total, pendingTrips: pendingTrips.rows[0].total,
+      pending: pendingCargos.rows[0].total + pendingTrips.rows[0].total,
+      approved: approvedCargos.rows[0].total + approvedTrips.rows[0].total,
+      blocked: blocked.rows[0].total
+    }});
+  } catch (err) { console.error("Admin overview:", err); return res.status(500).json({ message: "Ошибка загрузки статистики" }); }
+});
+
+app.get("/api/admin/submissions", ...adminOnly, async (req, res) => {
+  const kind = ["cargo", "trip", "all"].includes(req.query.type) ? req.query.type : "all";
+  const status = ["pending", "approved", "rejected", "hidden", "all"].includes(req.query.status) ? req.query.status : "pending";
+  try {
+    const cargoSql = `SELECT 'cargo' AS type, c.id, c.origin_city, c.destination_city, c.cargo_type AS details,
+      c.weight_kg AS amount, c.price, c.ready_date AS event_date, c.comment, c.status, c.moderation_status,
+      c.moderation_reason, c.created_at, u.full_name AS owner_name, u.email AS owner_email, u.phone AS owner_phone
+      FROM cargos c JOIN users u ON u.id = c.client_id ${status === 'all' ? '' : 'WHERE c.moderation_status = $1'}`;
+    const tripSql = `SELECT 'trip' AS type, t.id, t.origin_city, t.destination_city, 'Рейс' AS details,
+      t.capacity_kg AS amount, t.price, t.departure_date AS event_date, t.comment, t.status, t.moderation_status,
+      t.moderation_reason, t.created_at, u.full_name AS owner_name, u.email AS owner_email, u.phone AS owner_phone
+      FROM trips t JOIN users u ON u.id = t.carrier_id ${status === 'all' ? '' : 'WHERE t.moderation_status = $1'}`;
+    const params = status === "all" ? [] : [status];
+    let rows = [];
+    if (kind !== "trip") { const r = await pool.query(cargoSql, params); rows.push(...r.rows); }
+    if (kind !== "cargo") { const r = await pool.query(tripSql, params); rows.push(...r.rows); }
+    rows.sort((a,b) => new Date(b.created_at) - new Date(a.created_at));
+    return res.json({ submissions: rows.slice(0, 500) });
+  } catch (err) { console.error("Admin submissions:", err); return res.status(500).json({ message: "Ошибка загрузки заявок" }); }
+});
+
+app.get("/api/admin/users", ...adminOnly, async (req, res) => {
+  try {
+    const q = String(req.query.q || "").trim().slice(0, 100);
+    const r = await pool.query(
+      `SELECT u.id, u.full_name, u.email, u.phone, u.role, u.is_blocked, u.created_at,
+       COALESCE(cp.company_name, cr.company_name) AS company_name,
+       (SELECT COUNT(*)::int FROM cargos c WHERE c.client_id = u.id) AS cargo_count,
+       (SELECT COUNT(*)::int FROM trips t WHERE t.carrier_id = u.id) AS trip_count
+       FROM users u LEFT JOIN client_profiles cp ON cp.user_id = u.id LEFT JOIN carrier_profiles cr ON cr.user_id = u.id
+       WHERE ($1 = '' OR u.full_name ILIKE '%' || $1 || '%' OR u.email ILIKE '%' || $1 || '%' OR u.phone ILIKE '%' || $1 || '%')
+       ORDER BY u.created_at DESC NULLS LAST LIMIT 500`, [q]);
+    return res.json({ users: r.rows });
+  } catch (err) { console.error("Admin users:", err); return res.status(500).json({ message: "Ошибка загрузки пользователей" }); }
+});
+
+app.get("/api/admin/announcements", ...adminOnly, async (req, res) => {
+  try {
+    const [c, t] = await Promise.all([
+      pool.query(`SELECT c.*, u.full_name AS owner_name, u.email AS owner_email FROM cargos c JOIN users u ON u.id=c.client_id ORDER BY c.created_at DESC LIMIT 500`),
+      pool.query(`SELECT t.*, u.full_name AS owner_name, u.email AS owner_email FROM trips t JOIN users u ON u.id=t.carrier_id ORDER BY t.created_at DESC LIMIT 500`)
+    ]);
+    return res.json({ cargos: c.rows, trips: t.rows });
+  } catch (err) { console.error("Admin announcements:", err); return res.status(500).json({ message: "Ошибка загрузки объявлений" }); }
+});
+
+app.patch("/api/admin/:type/:id/moderation", ...adminOnly, async (req, res) => {
+  const table = req.params.type === "cargo" ? "cargos" : req.params.type === "trip" ? "trips" : null;
+  const id = Number(req.params.id);
+  const { status, reason } = req.body || {};
+  if (!table || !Number.isInteger(id) || id < 1 || !["approved", "rejected", "hidden"].includes(status)) {
+    return res.status(400).json({ message: "Некорректное действие модерации" });
+  }
+  const safeReason = typeof reason === "string" ? reason.trim().slice(0, 500) : "";
+  if (status === "rejected" && safeReason.length < 3) return res.status(400).json({ message: "Укажите причину отказа (не менее 3 символов)" });
+  try {
+    const ownerColumn = table === "cargos" ? "client_id" : "carrier_id";
+    const result = await pool.query(
+      `UPDATE ${table} SET moderation_status = $1, moderation_reason = $2, moderated_at = NOW(), moderated_by = $3
+       WHERE id = $4 RETURNING id, ${ownerColumn} AS owner_id, origin_city, destination_city`,
+      [status, status === "rejected" ? safeReason : (status === "hidden" ? safeReason : null), req.admin.id, id]
+    );
+    if (!result.rows.length) return res.status(404).json({ message: "Объявление не найдено" });
+    const item = result.rows[0];
+    await writeAdminAudit(req.admin.id, status, req.params.type, id, safeReason);
+    const text = status === "approved" ? "Ваше объявление прошло проверку и опубликовано." : status === "rejected" ? `Объявление отклонено: ${safeReason}` : `Объявление скрыто администрацией${safeReason ? `: ${safeReason}` : "."}`;
+    await notify(item.owner_id, { type: "moderation", text, target: "cabinet", refId: id });
+    return res.json({ message: status === "approved" ? "Объявление опубликовано" : status === "rejected" ? "Заявка отклонена" : "Объявление скрыто" });
+  } catch (err) { console.error("Admin moderation:", err); return res.status(500).json({ message: "Не удалось изменить статус" }); }
+});
+
+app.patch("/api/admin/users/:id/block", ...adminOnly, async (req, res) => {
+  const id = Number(req.params.id);
+  const blocked = req.body && req.body.blocked;
+  if (!Number.isInteger(id) || id < 1 || typeof blocked !== "boolean") return res.status(400).json({ message: "Некорректные данные" });
+  if (id === req.admin.id) return res.status(400).json({ message: "Нельзя заблокировать собственный аккаунт" });
+  try {
+    const target = await pool.query("SELECT id, email FROM users WHERE id = $1", [id]);
+    if (!target.rows.length) return res.status(404).json({ message: "Пользователь не найден" });
+    if (blocked && adminEmails.includes(String(target.rows[0].email).toLowerCase())) {
+      return res.status(409).json({ message: "Нельзя заблокировать аккаунт, назначенный администратором через ADMIN_EMAILS" });
+    }
+    const r = await pool.query("UPDATE users SET is_blocked = $1 WHERE id = $2 RETURNING id, email", [blocked, id]);
+    await writeAdminAudit(req.admin.id, blocked ? "block_user" : "unblock_user", "user", id, r.rows[0].email);
+    return res.json({ message: blocked ? "Пользователь заблокирован" : "Блокировка снята" });
+  } catch (err) { console.error("Admin block user:", err); return res.status(500).json({ message: "Не удалось изменить пользователя" }); }
+});
+
+app.get("/api/admin/audit", ...adminOnly, async (req, res) => {
+  try {
+    const r = await pool.query(`SELECT a.*, u.full_name AS admin_name FROM admin_audit a LEFT JOIN users u ON u.id=a.admin_id ORDER BY a.created_at DESC LIMIT 200`);
+    return res.json({ entries: r.rows });
+  } catch (err) { console.error("Admin audit:", err); return res.status(500).json({ message: "Ошибка журнала" }); }
 });
 
 if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {

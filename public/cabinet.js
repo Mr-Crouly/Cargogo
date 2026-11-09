@@ -117,7 +117,22 @@ function renderProfile(user, profile) {
     .toUpperCase()
     .slice(0, 2);
 
-  document.getElementById("avatarInitials").textContent = initials;
+  const avatarEl = document.getElementById("avatarInitials");
+  if (avatarEl) {
+    avatarEl.textContent = initials;
+    avatarEl.style.backgroundImage = "";
+    avatarEl.classList.remove("has-photo");
+    if (user.avatar_url) {
+      const photo = document.createElement("img");
+      photo.src = user.avatar_url;
+      photo.alt = "Фото профиля";
+      photo.className = "avatar-photo";
+      photo.onerror = () => { photo.remove(); avatarEl.classList.remove("has-photo"); };
+      avatarEl.textContent = "";
+      avatarEl.appendChild(photo);
+      avatarEl.classList.add("has-photo");
+    }
+  }
 
 
   // ---------- Основная информация ----------
@@ -131,7 +146,7 @@ function renderProfile(user, profile) {
     user.phone || "Не указан";
 
   document.getElementById("userCreatedAt").textContent =
-    new Date(user.created_at).toLocaleDateString("ru-RU");
+    new Date(user.created_at).toLocaleDateString(window.CARGOGO_CABINET_I18N?.language === "ro" ? "ro-RO" : "ru-RU");
 
 
   // ---------- Роль ----------
@@ -586,6 +601,13 @@ function statusBadge(kind, status) {
   return `<span class="status-badge status-${escapeHtml(status)}">${escapeHtml(label)}</span>`;
 }
 
+function moderationBadge(status, reason) {
+  if (!status || status === "approved") return "";
+  const labels = { pending: "На проверке", rejected: "Отклонено", hidden: "Скрыто модератором" };
+  const label = labels[status] || status;
+  return `<span class="status-badge status-${escapeHtml(status)}" title="${escapeHtml(reason || "")}">${escapeHtml(label)}</span>`;
+}
+
 async function apiCall(method, url, body) {
   try {
     const response = await fetch(url, {
@@ -637,7 +659,9 @@ function renderTrips(trips) {
     card.innerHTML = `
       <div class="entity-card-row">
         <div class="entity-card-main">
-          <div class="entity-card-title">${escapeHtml(trip.origin_city)} → ${escapeHtml(trip.destination_city)} ${statusBadge("trip", trip.status)}</div>
+          <div class="entity-card-title">${escapeHtml(trip.origin_city)} → ${escapeHtml(trip.destination_city)} ${moderationBadge(trip.moderation_status, trip.moderation_reason) || statusBadge("trip", trip.status)}</div>
+          ${trip.moderation_status === "pending" ? '<div class="entity-card-sub">Объявление появится в каталоге после проверки администрацией.</div>' : ""}
+          ${trip.moderation_status === "rejected" && trip.moderation_reason ? `<div class="entity-card-sub">Причина отказа: ${escapeHtml(trip.moderation_reason)}</div>` : ""}
           ${subParts.length ? `<div class="entity-card-sub">${escapeHtml(subParts.join(" · "))}</div>` : ""}
           ${trip.price ? `<div class="entity-card-sub">${escapeHtml(formatMoney(trip.price))}</div>` : ""}
           ${trip.comment ? `<div class="entity-card-sub">${escapeHtml(trip.comment)}</div>` : ""}
@@ -650,12 +674,12 @@ function renderTrips(trips) {
     const actions = card.querySelector(".entity-card-actions");
     const statusUrl = `${API_URL}/trips/${trip.id}/status`;
 
-    if (trip.status === "active") {
+    if (trip.moderation_status !== "pending" && trip.moderation_status !== "rejected" && trip.moderation_status !== "hidden" && trip.status === "active") {
       actions.appendChild(makeActionButton("Рейс выполнен", () =>
         changeStatus(statusUrl, "completed", loadTrips, "Отметить рейс выполненным? Он пропадёт с главной страницы.")));
       actions.appendChild(makeActionButton("Снять с публикации", () =>
         changeStatus(statusUrl, "cancelled", loadTrips)));
-    } else if (trip.status === "cancelled") {
+    } else if (trip.moderation_status === "approved" && trip.status === "cancelled") {
       actions.appendChild(makeActionButton("Опубликовать снова", () =>
         changeStatus(statusUrl, "active", loadTrips)));
     }
@@ -968,7 +992,9 @@ function renderCargos(cargos) {
     card.innerHTML = `
       <div class="entity-card-row">
         <div class="entity-card-main">
-          <div class="entity-card-title">${escapeHtml(cargo.origin_city)} → ${escapeHtml(cargo.destination_city)} ${statusBadge("cargo", cargo.status)}</div>
+          <div class="entity-card-title">${escapeHtml(cargo.origin_city)} → ${escapeHtml(cargo.destination_city)} ${moderationBadge(cargo.moderation_status, cargo.moderation_reason) || statusBadge("cargo", cargo.status)}</div>
+          ${cargo.moderation_status === "pending" ? '<div class="entity-card-sub">Груз появится в каталоге после проверки администрацией.</div>' : ""}
+          ${cargo.moderation_status === "rejected" && cargo.moderation_reason ? `<div class="entity-card-sub">Причина отказа: ${escapeHtml(cargo.moderation_reason)}</div>` : ""}
           ${subParts.length ? `<div class="entity-card-sub">${escapeHtml(subParts.join(" · "))}</div>` : ""}
           ${cargo.origin_address ? `<div class="entity-card-sub">Адрес загрузки: ${escapeHtml(cargo.origin_address)}</div>` : ""}
           ${cargo.destination_address ? `<div class="entity-card-sub">Адрес доставки: ${escapeHtml(cargo.destination_address)}</div>` : ""}
@@ -997,7 +1023,7 @@ function renderCargos(cargos) {
       openResponseBoxes.add(cargo.id);
     }
 
-    actions.appendChild(makeActionButton(`Отклики (${count})`, () => {
+    if (cargo.moderation_status === "approved") actions.appendChild(makeActionButton(`Отклики (${count})`, () => {
       if (box.style.display === "none") {
         showResponses();
       } else {
@@ -1006,10 +1032,10 @@ function renderCargos(cargos) {
       }
     }, count > 0 && cargo.status === "active" ? "action-btn-primary" : ""));
 
-    if (cargo.status === "active") {
+    if (cargo.moderation_status === "approved" && cargo.status === "active") {
       actions.appendChild(makeActionButton("Закрыть груз", () =>
         changeStatus(statusUrl, "cancelled", loadCargos, "Закрыть груз? Он пропадёт с витрины.")));
-    } else if (cargo.status === "in_progress") {
+    } else if (cargo.moderation_status === "approved" && cargo.status === "in_progress") {
       actions.appendChild(makeActionButton("Груз доставлен", () =>
         changeStatus(statusUrl, "completed", loadCargos, "Отметить груз доставленным?"), "action-btn-primary"));
       actions.appendChild(makeActionButton("Отменить", () =>
@@ -1253,6 +1279,65 @@ if (logoutBtn) {
   });
 }
 
+
+
+document.addEventListener("cargogo:cabinet-languagechange", () => {
+  if (currentUser?.created_at) {
+    const dateEl = document.getElementById("userCreatedAt");
+    if (dateEl) dateEl.textContent = new Date(currentUser.created_at).toLocaleDateString(window.CARGOGO_CABINET_I18N?.language === "ro" ? "ro-RO" : "ru-RU");
+  }
+});
+
+// ---------- Загрузка фотографии профиля ----------
+const avatarFileInput = document.getElementById("avatarFileInput");
+if (avatarFileInput) {
+  avatarFileInput.addEventListener("change", async () => {
+    const file = avatarFileInput.files && avatarFileInput.files[0];
+    if (!file) return;
+    const allowed = ["image/jpeg", "image/png", "image/webp"];
+    if (!allowed.includes(file.type)) {
+      showToast("Выберите фото JPG, PNG или WebP", true);
+      avatarFileInput.value = "";
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      showToast("Размер фото не должен превышать 2 МБ", true);
+      avatarFileInput.value = "";
+      return;
+    }
+    try {
+      const image = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const response = await fetch(`${API_URL}/profile/avatar`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ image })
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.message || "Ошибка загрузки фото");
+      if (currentUser) currentUser.avatar_url = result.avatar_url;
+      const avatar = document.getElementById("avatarInitials");
+      if (avatar) {
+        const photo = document.createElement("img");
+        photo.src = `${result.avatar_url}?v=${Date.now()}`;
+        photo.alt = "Фото профиля";
+        photo.className = "avatar-photo";
+        avatar.textContent = "";
+        avatar.appendChild(photo);
+        avatar.classList.add("has-photo");
+      }
+      showToast("Фото профиля обновлено");
+    } catch (error) {
+      showToast(error.message || "Не удалось загрузить фото", true);
+    } finally {
+      avatarFileInput.value = "";
+    }
+  });
+}
 
 // ---------- Запуск ----------
 // ---------- Переключение светлой / тёмной темы ----------

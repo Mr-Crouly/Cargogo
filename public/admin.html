@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#f3f8f4" />
+  <title>CARGOGO — Администрирование</title>
+  <link rel="stylesheet" href="admin.css" />
+</head>
+<body>
+  <div class="login-wrap" id="adminLoginWrap">
+    <form class="login-card" id="adminLoginForm">
+      <div class="brand">CARGO<span>GO</span><small>ADMIN</small></div>
+      <h1>Вход администратора</h1>
+      <p>Используйте свой обычный аккаунт CARGOGO. Доступ предоставляется только адресам из списка ADMIN_EMAILS на сервере.</p>
+      <label>Email<input id="adminEmail" type="email" autocomplete="username" required /></label>
+      <label>Пароль<input id="adminPassword" type="password" autocomplete="current-password" required /></label>
+      <p class="error" id="loginError" role="alert"></p>
+      <button class="primary full" type="submit">Войти в панель</button>
+      <a href="index.html">← Вернуться на сайт</a>
+    </form>
+  </div>
+
+  <div class="admin-app" id="adminApp" hidden>
+    <aside class="sidebar">
+      <a class="brand" href="admin.html">CARGO<span>GO</span><small>ADMIN</small></a>
+      <div class="admin-caption">УПРАВЛЕНИЕ</div>
+      <nav id="adminNav">
+        <button class="nav-item active" data-view="overview"><span>▦</span>Обзор</button>
+        <button class="nav-item" data-view="submissions"><span>▤</span>Заявки <b id="pendingBadge">0</b></button>
+        <button class="nav-item" data-view="users"><span>♙</span>Пользователи</button>
+        <button class="nav-item" data-view="cargos"><span>▣</span>Все грузы</button>
+        <button class="nav-item" data-view="trips"><span>▱</span>Все рейсы</button>
+        <button class="nav-item" data-view="audit"><span>◷</span>Журнал действий</button>
+      </nav>
+      <div class="sidebar-bottom"><a href="index.html">Открыть сайт ↗</a><button id="logoutBtn" class="logout">Выйти</button></div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar"><div><p class="eyebrow">CARGOGO CONTROL CENTER</p><h1 id="pageTitle">Обзор</h1></div><div class="top-actions"><span class="admin-chip">● Администратор</span><button id="refreshBtn" class="secondary">Обновить</button></div></header>
+      <div class="notice" id="notice" role="status"></div>
+
+      <section class="view active" id="view-overview">
+        <div class="welcome"><div><span>ПАНЕЛЬ УПРАВЛЕНИЯ</span><h2>Добро пожаловать в CARGOGO</h2><p>Здесь вы можете проверять объявления и управлять платформой.</p></div><div class="welcome-icon">✦</div></div>
+        <div class="stats-grid" id="statsGrid"><div class="stat-card skeleton"></div><div class="stat-card skeleton"></div><div class="stat-card skeleton"></div><div class="stat-card skeleton"></div><div class="stat-card skeleton"></div><div class="stat-card skeleton"></div></div>
+        <div class="panel"><div class="panel-heading"><div><h3>Ожидают проверки</h3><p>Новые объявления, которые ещё не опубликованы</p></div><button class="text-button" data-go="submissions">Все заявки →</button></div><div id="overviewPending" class="table-wrap"></div></div>
+      </section>
+
+      <section class="view" id="view-submissions">
+        <div class="panel"><div class="panel-heading"><div><h3>Модерация заявок</h3><p>Публикуйте объявления после проверки или отклоняйте с причиной</p></div></div>
+          <div class="filters"><select id="submissionType"><option value="all">Грузы и рейсы</option><option value="cargo">Только грузы</option><option value="trip">Только рейсы</option></select><select id="submissionStatus"><option value="pending">Ожидают проверки</option><option value="approved">Опубликованные</option><option value="rejected">Отклонённые</option><option value="hidden">Скрытые</option><option value="all">Все статусы</option></select></div>
+          <div id="submissionsTable" class="table-wrap"></div>
+        </div>
+      </section>
+
+      <section class="view" id="view-users"><div class="panel"><div class="panel-heading"><div><h3>Пользователи</h3><p>Клиенты и перевозчики CARGOGO</p></div></div><div class="filters"><input id="userSearch" type="search" placeholder="Поиск по имени, email или телефону" /></div><div id="usersTable" class="table-wrap"></div></div></section>
+      <section class="view" id="view-cargos"><div class="panel"><div class="panel-heading"><div><h3>Все грузы</h3><p>Все объявления клиентов, включая ожидающие проверки</p></div></div><div id="cargosTable" class="table-wrap"></div></div></section>
+      <section class="view" id="view-trips"><div class="panel"><div class="panel-heading"><div><h3>Все рейсы</h3><p>Все предложения перевозчиков</p></div></div><div id="tripsTable" class="table-wrap"></div></div></section>
+      <section class="view" id="view-audit"><div class="panel"><div class="panel-heading"><div><h3>Журнал действий</h3><p>История модерации и блокировок</p></div></div><div id="auditTable" class="table-wrap"></div></div></section>
+      <footer>© CARGOGO · Административная панель</footer>
+    </main>
+  </div>
+  <script src="admin.js" defer></script>
+</body>
+</html>

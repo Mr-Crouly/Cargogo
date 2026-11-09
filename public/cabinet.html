@@ -12,6 +12,7 @@
   <header class="navbar">
     <a class="logo cabinet-logo" href="index.html" aria-label="CARGOGO — главная">CARGO<span>GO</span></a>
     <div class="nav-buttons">
+      <button type="button" class="btn btn-outline cabinet-language-toggle" id="cabinetLanguageToggle" aria-label="Schimbă limba">RO</button>
       <button type="button" class="btn btn-outline cabinet-theme-top" id="themeToggleTop" aria-label="Переключить тему" aria-pressed="false" title="Переключить тему">☾</button>
       <div class="notif-wrap" id="notifWrap">
         <button type="button" class="btn btn-outline notif-btn" id="notifBtn" aria-label="Уведомления" aria-expanded="false">
@@ -50,7 +51,11 @@
       </aside>
       <div class="cabinet-main">
       <div class="cabinet-header">
-        <div class="avatar" id="avatarInitials">—</div>
+        <div class="avatar-wrap">
+          <div class="avatar" id="avatarInitials" aria-label="Фото профиля">—</div>
+          <label class="avatar-upload-btn" for="avatarFileInput" title="Изменить фото" aria-label="Изменить фото">✎</label>
+          <input type="file" id="avatarFileInput" accept="image/jpeg,image/png,image/webp" hidden />
+        </div>
         <div>
           <p class="cabinet-name" id="userName">—</p>
           <p class="cabinet-role" id="userRoleLabel">—</p>
@@ -408,6 +413,7 @@
   </nav>
 
   <script src="cities.js"></script>
+  <script src="cabinet-language.js?v=20261103-1"></script>
 
   <script src="chat.js?v=20261030-mobile3"></script>
   <script src="reviews.js?v=20261030-mobile3"></script>
