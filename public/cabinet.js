@@ -72,6 +72,22 @@ async function loadProfile() {
     currentUser = data.user;
     currentProfile = data.profile;
 
+    // Показываем ссылку на админ-панель только после серверной проверки прав.
+    // Не полагаемся на роль из профиля или данные, сохранённые в браузере.
+    const adminEntryLink = document.getElementById("adminEntryLink");
+    if (adminEntryLink) {
+      adminEntryLink.hidden = true;
+      try {
+        const adminCheck = await fetch(`${API_URL}/admin/overview`, {
+          method: "GET",
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        adminEntryLink.hidden = !adminCheck.ok;
+      } catch (_) {
+        adminEntryLink.hidden = true;
+      }
+    }
+
     const createBtn = document.getElementById("sidebarCreateBtn");
     const requestsLabel = document.getElementById("sidebarRequestsLabel");
     const transportLink = document.getElementById("sidebarTransportLink");
@@ -1281,7 +1297,11 @@ if (logoutBtn) {
 
 
 
-document.addEventListener("cargogo:cabinet-languagechange", () => {
+document.addEventListener("cargogo:cabinet-languagechange", (event) => {
+  const adminEntryLink = document.getElementById("adminEntryLink");
+  if (adminEntryLink && !adminEntryLink.hidden) {
+    adminEntryLink.textContent = event.detail?.language === "ro" ? "Administrare" : "Администрирование";
+  }
   if (currentUser?.created_at) {
     const dateEl = document.getElementById("userCreatedAt");
     if (dateEl) dateEl.textContent = new Date(currentUser.created_at).toLocaleDateString(window.CARGOGO_CABINET_I18N?.language === "ro" ? "ro-RO" : "ru-RU");

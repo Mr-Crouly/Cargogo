@@ -18,8 +18,11 @@
     return data;
   }
   function notice(message, error=false) { const el=$("notice"); el.textContent=message; el.className=`notice show${error?" error":""}`; setTimeout(()=>el.className="notice",4500); }
-  function showLogin() { $("adminLoginWrap").hidden=false; $("adminApp").hidden=true; }
-  function showApp() { $("adminLoginWrap").hidden=true; $("adminApp").hidden=false; }
+  function showApp() { $("adminApp").hidden=false; }
+  function leaveAdmin(message, destination="cabinet.html") {
+    if (message) sessionStorage.setItem("adminAccessMessage", message);
+    window.location.replace(destination);
+  }
   function setView(view) {
     activeView=view; document.querySelectorAll(".view").forEach(el=>el.classList.toggle("active",el.id===`view-${view}`));
     document.querySelectorAll(".nav-item").forEach(el=>el.classList.toggle("active",el.dataset.view===view));
@@ -64,13 +67,29 @@
     if(view==="overview") return loadOverview(); if(view==="submissions") return loadSubmissions(); if(view==="users") return loadUsers(); if(view==="cargos"||view==="trips") return loadAnnouncements(view); if(view==="audit") return loadAudit();
   }
   async function checkAccess() {
-    if(!token){showLogin();return;}
-    try{await api("/admin/overview");showApp();setView(activeView);}catch(e){if(e.status===401){localStorage.removeItem("token");token="";}$("loginError").textContent=e.message;showLogin();}
+    if (!token) {
+      leaveAdmin("Сначала войдите в свой аккаунт CARGOGO.", "index.html");
+      return;
+    }
+    try {
+      await api("/admin/overview");
+      showApp();
+      setView(activeView);
+    } catch (e) {
+      if (e.status === 401) {
+        localStorage.removeItem("token");
+        token = "";
+        leaveAdmin("Сессия истекла. Войдите в аккаунт ещё раз.", "index.html");
+        return;
+      }
+      if (e.status === 403) {
+        leaveAdmin("У этого аккаунта нет прав администратора.", "cabinet.html");
+        return;
+      }
+      showApp();
+      notice(e.message || "Не удалось подключиться к серверу.", true);
+    }
   }
-  $("adminLoginForm").addEventListener("submit",async e=>{
-    e.preventDefault();$("loginError").textContent="";
-    try{const r=await fetch(`${API}/login`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:$("adminEmail").value,password:$("adminPassword").value})});const d=await r.json();if(!r.ok)throw new Error(d.message||"Не удалось войти");token=d.token;localStorage.setItem("token",token);await checkAccess();}catch(err){$("loginError").textContent=err.message;}
-  });
   $("adminNav").addEventListener("click",e=>{const b=e.target.closest("[data-view]");if(b)setView(b.dataset.view);});
   document.addEventListener("click",async e=>{
     const go=e.target.closest("[data-go]");if(go){setView(go.dataset.go);return;}
@@ -82,6 +101,6 @@
   $("submissionStatus").addEventListener("change",()=>loadSubmissions().catch(e=>notice(e.message,true)));
   let searchTimer;$("userSearch").addEventListener("input",()=>{clearTimeout(searchTimer);searchTimer=setTimeout(()=>loadUsers().catch(e=>notice(e.message,true)),250);});
   $("refreshBtn").addEventListener("click",()=>loadView(activeView).then(()=>notice("Данные обновлены")).catch(e=>notice(e.message,true)));
-  $("logoutBtn").addEventListener("click",()=>{localStorage.removeItem("token");token="";showLogin();});
+  $("logoutBtn").addEventListener("click",()=>{localStorage.removeItem("token");token="";window.location.href="index.html";});
   checkAccess();
 })();

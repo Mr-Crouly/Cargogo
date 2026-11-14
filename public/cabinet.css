@@ -1245,3 +1245,11 @@ body.dark-theme .avatar-upload-btn { border-color: #202328; background: #36a765;
   .navbar .nav-buttons > a[href="index.html"] { font-size: 0 !important; }
   .navbar .nav-buttons > a[href="index.html"]::after { content: "⌂"; font-size: 20px; line-height: 1; }
 }
+
+
+/* Admin entry is displayed only after a successful server-side permission check. */
+.admin-entry-link[hidden] { display: none !important; }
+.admin-entry-link { white-space: nowrap; }
+@media (max-width: 640px) {
+  .admin-entry-link { order: -1; }
+}
