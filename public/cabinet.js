@@ -812,6 +812,7 @@ function renderPublicCargos(cargos) {
         ${cargo.price ? `<div class="entity-card-sub">Бюджет клиента: ${escapeHtml(formatMoney(cargo.price))}</div>` : ""}
         ${cargo.comment ? `<div class="entity-card-sub">${escapeHtml(cargo.comment)}</div>` : ""}
         <div class="entity-card-sub">Заказчик: ${escapeHtml(cargo.client_name || "Клиент")}</div>
+        ${cargo.client_phone ? `<div class="entity-card-sub">Телефон: <a href="tel:${escapeHtml(cargo.client_phone)}">${escapeHtml(cargo.client_phone)}</a></div>` : ""}
       </div>
       <div class="entity-card-actions"></div>
       <form class="respond-form" style="display: none;">

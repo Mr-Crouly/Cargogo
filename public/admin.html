@@ -15,6 +15,7 @@
       <nav id="adminNav">
         <button class="nav-item active" data-view="overview"><span>▦</span>Обзор</button>
         <button class="nav-item" data-view="submissions"><span>▤</span>Заявки <b id="pendingBadge">0</b></button>
+        <button class="nav-item" data-view="express"><span>⚡</span>Экспресс-заявки <b id="expressBadge">0</b></button>
         <button class="nav-item" data-view="users"><span>♙</span>Пользователи</button>
         <button class="nav-item" data-view="cargos"><span>▣</span>Все грузы</button>
         <button class="nav-item" data-view="trips"><span>▱</span>Все рейсы</button>
@@ -40,6 +41,7 @@
         </div>
       </section>
 
+      <section class="view" id="view-express"><div class="panel"><div class="panel-heading"><div><h3>Экспресс-заявки без регистрации</h3><p>Заявки с главной страницы от посетителей без аккаунта</p></div><select id="expressStatusFilter"><option value="all">Все заявки</option><option value="new">Новые</option><option value="in_progress">В работе</option><option value="completed">Завершённые</option></select></div><div id="expressRequestsTable" class="table-wrap"></div></div></section>
       <section class="view" id="view-users"><div class="panel"><div class="panel-heading"><div><h3>Пользователи</h3><p>Клиенты и перевозчики CARGOGO</p></div></div><div class="filters"><input id="userSearch" type="search" placeholder="Поиск по имени, email или телефону" /></div><div id="usersTable" class="table-wrap"></div></div></section>
       <section class="view" id="view-cargos"><div class="panel"><div class="panel-heading"><div><h3>Все грузы</h3><p>Все объявления клиентов, включая ожидающие проверки</p></div></div><div id="cargosTable" class="table-wrap"></div></div></section>
       <section class="view" id="view-trips"><div class="panel"><div class="panel-heading"><div><h3>Все рейсы</h3><p>Все предложения перевозчиков</p></div></div><div id="tripsTable" class="table-wrap"></div></div></section>

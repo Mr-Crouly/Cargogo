@@ -29,6 +29,38 @@ document.addEventListener("cargogo:languagechange", () => {
 });
 const tr = (key) => window.CARGOGO_I18N ? window.CARGOGO_I18N.t(key) : key;
 
+
+// ---------- Экспресс-заявка без регистрации ----------
+const expressOverlay = document.getElementById("expressOverlay");
+const expressForm = document.getElementById("expressForm");
+const expressError = document.getElementById("expressError");
+const openExpressBtn = document.getElementById("openExpressBtn");
+const closeExpressBtn = document.getElementById("closeExpressBtn");
+if (openExpressBtn) openExpressBtn.addEventListener("click", () => openModal(expressOverlay));
+if (closeExpressBtn) closeExpressBtn.addEventListener("click", () => closeModal(expressOverlay));
+if (expressOverlay) expressOverlay.addEventListener("click", e => { if (e.target === expressOverlay) closeModal(expressOverlay); });
+if (expressForm) expressForm.addEventListener("submit", async e => {
+  e.preventDefault();
+  expressError.textContent = "";
+  const submit = document.getElementById("expressSubmitBtn");
+  const data = Object.fromEntries(new FormData(expressForm).entries());
+  submit.disabled = true;
+  submit.textContent = tr("expressSending");
+  try {
+    const response = await fetch(`${API_URL}/express-requests`, { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(data) });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.message || tr("expressError"));
+    expressForm.reset();
+    closeModal(expressOverlay);
+    alert(tr("expressSent"));
+  } catch (err) {
+    expressError.textContent = err.message || tr("expressError");
+  } finally {
+    submit.disabled = false;
+    submit.textContent = tr("expressSend");
+  }
+});
+
 // ---------- Элементы окон ----------
 const registerOverlay = document.getElementById("registerOverlay");
 const loginOverlay = document.getElementById("loginOverlay");

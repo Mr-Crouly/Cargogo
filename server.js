@@ -271,7 +271,8 @@ const loginPairLimiter = createLimiter({ max: 5, windowMs: 15 * MINUTE, lockMs: 
 const loginIpLimiter = createLimiter({ max: 50, windowMs: 15 * MINUTE, lockMs: 15 * MINUTE });    // перебор разных email
 const passwordLimiter = createLimiter({ max: 5, windowMs: 15 * MINUTE, lockMs: 15 * MINUTE });    // смена пароля
 const registerLimiter = createLimiter({ max: 30, windowMs: 60 * MINUTE, lockMs: 60 * MINUTE });
-const avatarLimiter = createLimiter({ max: 5, windowMs: 15 * MINUTE, lockMs: 15 * MINUTE });   // регистрации с одного IP
+const avatarLimiter = createLimiter({ max: 5, windowMs: 15 * MINUTE, lockMs: 15 * MINUTE });
+const expressRequestLimiter = createLimiter({ max: 5, windowMs: 30 * MINUTE, lockMs: 30 * MINUTE });   // регистрации с одного IP
 
 function tooMany(res, seconds) {
   res.set("Retry-After", String(seconds));
@@ -395,6 +396,21 @@ async function ensureFkToUsers(table, column) {
 }
 
 async function ensureSchema() {
+  // Анонимные экспресс-заявки с главной страницы (без создания аккаунта).
+  await pool.query(`CREATE TABLE IF NOT EXISTS express_requests (
+    id SERIAL PRIMARY KEY,
+    contact_name VARCHAR(100) NOT NULL,
+    phone VARCHAR(30) NOT NULL,
+    origin_address VARCHAR(150) NOT NULL,
+    destination_address VARCHAR(150) NOT NULL,
+    cargo_description TEXT NOT NULL,
+    desired_date DATE,
+    status VARCHAR(20) NOT NULL DEFAULT 'new',
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+  )`);
+  await pool.query("CREATE INDEX IF NOT EXISTS express_requests_status_created_idx ON express_requests (status, created_at DESC)");
+
   // Фото профиля хранится как безопасный путь к файлу в public/uploads.
   await ensureColumn("users", "avatar_url", "TEXT");
   // ---------- vehicles ----------
@@ -430,6 +446,8 @@ async function ensureSchema() {
 
   // ---------- cargos ----------
   await pool.query(`CREATE TABLE IF NOT EXISTS cargos (id SERIAL PRIMARY KEY);`);
+  await ensureColumn("cargos", "express_request_id", "INTEGER UNIQUE REFERENCES express_requests(id) ON DELETE SET NULL");
+  await ensureColumn("express_requests", "published_cargo_id", "INTEGER UNIQUE REFERENCES cargos(id) ON DELETE SET NULL");
   await ensureColumn("cargos", "client_id", "INTEGER REFERENCES users(id) ON DELETE CASCADE");
   await ensureColumn("cargos", "origin_city", "VARCHAR(100)");
   await ensureColumn("cargos", "destination_city", "VARCHAR(100)");
@@ -579,6 +597,39 @@ async function ensureSchema() {
       )
   `);
 }
+
+// ---------- POST /api/express-requests (гость, без регистрации) ----------
+app.post("/api/express-requests", async (req, res) => {
+  const hit = expressRequestLimiter.hit(`express|${req.ip}`);
+  if (hit.blocked) return tooMany(res, hit.retryAfter);
+  const body = req.body || {};
+  // Скрытое поле-ловушка: обычный пользователь его не заполняет.
+  if (typeof body.website === "string" && body.website.trim()) return res.status(201).json({ message: "Заявка принята" });
+  try {
+    const name = reqText(body.name, 100, "Имя");
+    const phone = reqText(body.phone, 30, "Телефон");
+    const origin = reqText(body.origin, 150, "Адрес отправления");
+    const destination = reqText(body.destination, 150, "Адрес доставки");
+    const cargo = reqText(body.cargo, 1000, "Описание груза");
+    if (!/^[+0-9()\-\s]{7,30}$/.test(phone)) bad("Укажите корректный номер телефона");
+    let desiredDate = null;
+    if (body.date) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(String(body.date))) bad("Некорректная дата");
+      desiredDate = String(body.date);
+      if (desiredDate < new Date().toISOString().slice(0, 10)) bad("Дата не может быть в прошлом");
+    }
+    const saved = await pool.query(
+      `INSERT INTO express_requests (contact_name, phone, origin_address, destination_address, cargo_description, desired_date)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, created_at`,
+      [name, phone, origin, destination, cargo, desiredDate]
+    );
+    return res.status(201).json({ message: "Заявка принята", requestId: saved.rows[0].id });
+  } catch (err) {
+    if (err instanceof ValidationError) return res.status(400).json({ message: err.message });
+    console.error("Ошибка сохранения экспресс-заявки:", err);
+    return res.status(500).json({ message: "Не удалось сохранить заявку" });
+  }
+});
 
 // ---------- POST /api/register ----------
 // Принимает данные из формы регистрации, создаёт пользователя
@@ -1149,17 +1200,19 @@ app.get("/api/cargos", authMiddleware, requireRole("client"), async (req, res) =
 });
 
 // ---------- GET /api/cargos/public ----------
-// Витрина активных грузов для перевозчиков. Телефон клиента здесь НЕ отдаётся —
-// он открывается только после того, как клиент выберет отклик этого перевозчика.
+// Витрина активных грузов для перевозчиков. Для экспресс-заказов показываем телефон,
+// поскольку заказчик не имеет аккаунта и не сможет выбрать отклик в личном кабинете.
 app.get("/api/cargos/public", authMiddleware, requireRole("carrier"), async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT c.id, c.origin_city, c.destination_city, c.origin_address, c.destination_address, c.cargo_type, c.weight_kg,
               c.price, c.ready_date, c.comment, c.created_at,
-              u.full_name AS client_name,
+              COALESCE(u.full_name, er.contact_name, 'Клиент без регистрации') AS client_name,
+              CASE WHEN c.express_request_id IS NOT NULL THEN er.phone ELSE NULL END AS client_phone,
               r.status AS my_response_status, r.price AS my_response_price
        FROM cargos c
-       JOIN users u ON u.id = c.client_id
+       LEFT JOIN users u ON u.id = c.client_id
+       LEFT JOIN express_requests er ON er.id = c.express_request_id
        LEFT JOIN responses r ON r.cargo_id = c.id AND r.carrier_id = $1
        WHERE c.status = 'active' AND c.moderation_status = 'approved'
        ORDER BY c.created_at DESC`,
@@ -2023,6 +2076,57 @@ async function writeAdminAudit(adminId, action, entityType, entityId, details = 
   );
 }
 
+app.get("/api/admin/express-requests", ...adminOnly, async (req, res) => {
+  try {
+    const status = ["new", "in_progress", "completed", "all"].includes(req.query.status) ? req.query.status : "all";
+    const result = await pool.query(
+      `SELECT id, contact_name, phone, origin_address, destination_address, cargo_description, desired_date, status, published_cargo_id, created_at
+       FROM express_requests WHERE ($1 = 'all' OR status = $1) ORDER BY created_at DESC LIMIT 300`, [status]
+    );
+    return res.json({ requests: result.rows });
+  } catch (err) { console.error("Admin express requests:", err); return res.status(500).json({ message: "Ошибка загрузки экспресс-заявок" }); }
+});
+
+app.post("/api/admin/express-requests/:id/publish", ...adminOnly, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id < 1) return res.status(400).json({ message: "Некорректный номер заявки" });
+  const db = await pool.connect();
+  try {
+    await db.query("BEGIN");
+    const found = await db.query("SELECT * FROM express_requests WHERE id=$1 FOR UPDATE", [id]);
+    if (!found.rows.length) { await db.query("ROLLBACK"); return res.status(404).json({ message: "Экспресс-заявка не найдена" }); }
+    const request = found.rows[0];
+    if (request.published_cargo_id) { await db.query("ROLLBACK"); return res.status(409).json({ message: `Заявка уже опубликована как груз #${request.published_cargo_id}`, cargoId: request.published_cargo_id }); }
+    const cityPart = (value) => String(value || "").split(",")[0].trim().slice(0,100) || String(value || "Без адреса").slice(0,100);
+    const comment = `Экспресс-заявка от ${request.contact_name}. Телефон: ${request.phone}. ${request.cargo_description}`;
+    const cargo = await db.query(
+      `INSERT INTO cargos (client_id, express_request_id, origin_city, destination_city, origin_address, destination_address, cargo_type, ready_date, comment, status, moderation_status)
+       VALUES (NULL, $1, $2, $3, $4, $5, 'Экспресс-заказ', $6, $7, 'active', 'approved')
+       RETURNING id`,
+      [id, cityPart(request.origin_address), cityPart(request.destination_address), request.origin_address, request.destination_address, request.desired_date, comment]
+    );
+    await db.query("UPDATE express_requests SET published_cargo_id=$1, status='in_progress', updated_at=NOW() WHERE id=$2", [cargo.rows[0].id, id]);
+    await db.query("COMMIT");
+    await writeAdminAudit(req.admin.id, "express_request_published", "express_request", id, `cargo_id=${cargo.rows[0].id}`);
+    return res.status(201).json({ message: `Заявка опубликована для перевозчиков как груз #${cargo.rows[0].id}`, cargoId: cargo.rows[0].id });
+  } catch (err) {
+    await db.query("ROLLBACK");
+    console.error("Admin publish express request:", err);
+    return res.status(500).json({ message: "Не удалось опубликовать экспресс-заявку" });
+  } finally { db.release(); }
+});
+
+app.patch("/api/admin/express-requests/:id/status", ...adminOnly, async (req, res) => {
+  const id = Number(req.params.id), status = req.body && req.body.status;
+  if (!Number.isInteger(id) || id < 1 || !["new", "in_progress", "completed"].includes(status)) return res.status(400).json({ message: "Некорректный статус" });
+  try {
+    const result = await pool.query("UPDATE express_requests SET status=$1, updated_at=NOW() WHERE id=$2 RETURNING id", [status, id]);
+    if (!result.rows.length) return res.status(404).json({ message: "Заявка не найдена" });
+    await writeAdminAudit(req.admin.id, "express_request_status", "express_request", id, status);
+    return res.json({ message: "Статус экспресс-заявки обновлён" });
+  } catch (err) { console.error("Admin express request status:", err); return res.status(500).json({ message: "Не удалось обновить статус" }); }
+});
+
 app.get("/api/admin/overview", ...adminOnly, async (req, res) => {
   try {
     const [users, cargos, trips, pendingCargos, pendingTrips, approvedCargos, approvedTrips, blocked] = await Promise.all([
@@ -2084,7 +2188,7 @@ app.get("/api/admin/users", ...adminOnly, async (req, res) => {
 app.get("/api/admin/announcements", ...adminOnly, async (req, res) => {
   try {
     const [c, t] = await Promise.all([
-      pool.query(`SELECT c.*, u.full_name AS owner_name, u.email AS owner_email FROM cargos c JOIN users u ON u.id=c.client_id ORDER BY c.created_at DESC LIMIT 500`),
+      pool.query(`SELECT c.*, COALESCE(u.full_name, er.contact_name, 'Клиент без аккаунта') AS owner_name, COALESCE(u.email, '') AS owner_email, COALESCE(u.phone, er.phone, '') AS owner_phone FROM cargos c LEFT JOIN users u ON u.id=c.client_id LEFT JOIN express_requests er ON er.id=c.express_request_id ORDER BY c.created_at DESC LIMIT 500`),
       pool.query(`SELECT t.*, u.full_name AS owner_name, u.email AS owner_email FROM trips t JOIN users u ON u.id=t.carrier_id ORDER BY t.created_at DESC LIMIT 500`)
     ]);
     return res.json({ cargos: c.rows, trips: t.rows });

@@ -4,7 +4,5 @@
 @media(max-width:700px){.admin-app{display:block}.sidebar{position:relative;height:auto;padding:13px 14px;border-right:0;border-bottom:1px solid var(--line)}.sidebar>.brand{margin-bottom:12px}.admin-caption{display:none}.sidebar nav{display:flex;overflow-x:auto;gap:6px;padding-bottom:2px}.nav-item{white-space:nowrap;padding:9px 11px;font-size:12px;flex:0 0 auto}.nav-item span{font-size:15px;width:auto}.sidebar-bottom{display:flex;justify-content:space-between;margin-top:10px;padding-top:10px}.main{padding:19px 13px}.topbar{align-items:flex-start}.topbar h1{font-size:23px}.top-actions{gap:6px;flex-wrap:wrap;justify-content:flex-end}.admin-chip{display:none}.welcome{padding:20px;border-radius:15px}.welcome h2{font-size:19px}.welcome p{font-size:12px}.welcome-icon{width:48px;height:48px;flex:0 0 48px}.stats-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.stat-card{padding:14px}.stat-value{font-size:25px}.panel{padding:15px;border-radius:14px}.panel-heading{align-items:flex-start}.filters{flex-direction:column}.filters input,.filters select{width:100%;min-width:0}.table-wrap{margin-inline:-4px;width:calc(100% + 8px)}table{min-width:680px}.login-card{padding:25px 20px}}
 @media(max-width:380px){.stats-grid{grid-template-columns:1fr}.topbar{display:block}.top-actions{justify-content:flex-start;margin-top:12px}}
 
-/* Не показывать админ-панель до завершения проверки доступа */
-.admin-app[hidden] {
-  display: none !important;
-}
+/* Атрибут hidden должен скрывать элементы даже при наличии display:grid/flex в стилях. */
+[hidden]{display:none!important}

@@ -56,6 +56,10 @@
           <button class="btn btn-outline" id="resetSearchBtn" style="display: none;" data-i18n="reset">Сбросить</button>
         </div>
         <div class="search-footnote"><span>🔒</span><span data-i18n="searchSecure">Ваши контакты доступны только после входа</span></div>
+        <div class="express-cta">
+          <div><strong data-i18n="expressTitle">Нужна перевозка срочно?</strong><small data-i18n="expressHint">Оставьте заявку без регистрации — мы свяжемся с вами.</small></div>
+          <button class="btn btn-primary" id="openExpressBtn" type="button" data-i18n="expressOpen">Экспресс-заявка</button>
+        </div>
       </div>
     </div>
     <div class="hero-decoration hero-decoration-one"></div><div class="hero-decoration hero-decoration-two"></div>
@@ -134,6 +138,26 @@
     <div class="logo">CARGO<span class="logo-accent">GO</span></div>
     <p><span data-i18n="footer">Биржа грузоперевозок для Молдовы</span> · <span id="footerYear"></span></p>
   </footer>
+
+  <!-- Экспресс-заявка без регистрации -->
+  <div class="modal-overlay" id="expressOverlay">
+    <div class="modal express-modal">
+      <div class="modal-header"><p class="modal-title" data-i18n="expressTitle">Экспресс-заявка</p><span class="modal-close" id="closeExpressBtn">&times;</span></div>
+      <p class="modal-subtitle" data-i18n="expressSubtitle">Заполните короткую форму. Аккаунт создавать не нужно.</p>
+      <form id="expressForm">
+        <label for="expressName" data-i18n="name">Имя</label><input id="expressName" name="name" maxlength="100" autocomplete="name" required />
+        <label for="expressPhone" data-i18n="phone">Телефон</label><input id="expressPhone" name="phone" type="tel" maxlength="30" autocomplete="tel" placeholder="+373 6X XXX XXX" required />
+        <label for="expressOrigin" data-i18n="expressFrom">Откуда забрать груз</label><input id="expressOrigin" name="origin" maxlength="150" required />
+        <label for="expressDestination" data-i18n="expressTo">Куда доставить</label><input id="expressDestination" name="destination" maxlength="150" required />
+        <label for="expressCargo" data-i18n="expressCargo">Что нужно перевезти</label><textarea id="expressCargo" name="cargo" maxlength="1000" rows="3" required></textarea>
+        <label for="expressDate" data-i18n="expressDate">Желаемая дата (необязательно)</label><input id="expressDate" name="date" type="date" />
+        <input name="website" type="text" tabindex="-1" autocomplete="off" aria-hidden="true" class="express-honeypot" />
+        <p class="error-message" id="expressError" role="alert"></p>
+        <p class="express-privacy" data-i18n="expressPrivacy">Отправляя заявку, вы соглашаетесь на обработку контактных данных для связи по вашему запросу.</p>
+        <button type="submit" class="btn btn-primary btn-full" id="expressSubmitBtn" data-i18n="expressSend">Отправить заявку</button>
+      </form>
+    </div>
+  </div>
 
   <!-- Модальное окно регистрации -->
   <div class="modal-overlay" id="registerOverlay">
